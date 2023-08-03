@@ -109,55 +109,56 @@ def processFile(
     root = tree.getroot()
 
     deps = root.find("./properties[@key='pwrt:inspector:value-deps']")
-    if deps is None:
+    value_ref = root.find("./properties[@key='pwrt:inspector:value-ref']")
+    if deps is None and value_ref is None:
         logger.info(
-            f'{" "*log_indentation}  No top-level properties tag with key="pwrt:inspector:value-deps". Skipping this file'
+            f'{" "*log_indentation}  No top-level properties tag with key="pwrt:inspector:value-deps" or "pwrt:inspector:value-ref". Skipping this file'
         )
         return False
 
-    deps_arr: typing.List[str] = deps.get("value").split(";")
-    deps_hashes = root.find("./properties[@key='pwrt:inspector:value-deps-hashes']")
-    deps_hashes_arr: typing.List[str] = (
-        deps_hashes.get("value").split(";") if deps_hashes is not None else None
-    )
+    if deps is not None:
+        deps_arr: typing.List[str] = deps.get("value").split(";")
+        deps_hashes = root.find("./properties[@key='pwrt:inspector:value-deps-hashes']")
+        deps_hashes_arr: typing.List[str] = (
+            deps_hashes.get("value").split(";") if deps_hashes is not None else None
+        )
 
-    deps_mismatches: typing.List[str] = []
-    deps_hashes_calculated: typing.List[str] = []
-    for i, deps_url in enumerate(deps_arr):
-        logger.debug(f'{" "*log_indentation}  Processing value dependency: {deps_url}')
-        url = urllib.parse.urlparse(deps_url)
-        url_resolver: plugin_registry.IUrlResolver = plugin_registry.getUrlResolver(
-            plugins, url.scheme
-        )
-        hash_known = (
-            deps_hashes_arr[i]
-            if deps_hashes_arr and i < len(deps_hashes_arr)
-            else "~none~"
-        )
-        content: str = url_resolver.resolveToContent(deps_url)
-        if content is None:
-            hash_calculated = "~none~"
-        else:
-            logger.debug(f'{" "*log_indentation}    Resolved content: {content}')
-            hash_calculated = hashlib.shake_128(content).hexdigest(4)
-            logger.debug(
-                f'{" "*log_indentation}    Hash of resolved content: {hash_calculated}. Hash known in pwrt:inspector:value-deps-hashes: {hash_known}{". Mismatch!" if hash_calculated != hash_known else ""}'
+        deps_mismatches: typing.List[str] = []
+        deps_hashes_calculated: typing.List[str] = []
+        for i, deps_url in enumerate(deps_arr):
+            logger.debug(f'{" "*log_indentation}  Processing value dependency: {deps_url}')
+            url = urllib.parse.urlparse(deps_url)
+            url_resolver: plugin_registry.IUrlResolver = plugin_registry.getUrlResolver(
+                plugins, url.scheme
             )
-        if hash_calculated != hash_known:
-            deps_mismatches.append(deps_url)
-        deps_hashes_calculated.append(hash_calculated)
+            hash_known = (
+                deps_hashes_arr[i]
+                if deps_hashes_arr and i < len(deps_hashes_arr)
+                else "~none~"
+            )
+            content: str = url_resolver.resolveToContent(deps_url)
+            if content is None:
+                hash_calculated = "~none~"
+            else:
+                logger.debug(f'{" "*log_indentation}    Resolved content: {content}')
+                hash_calculated = hashlib.shake_128(content).hexdigest(4)
+                logger.debug(
+                    f'{" "*log_indentation}    Hash of resolved content: {hash_calculated}. Hash known in pwrt:inspector:value-deps-hashes: {hash_known}{". Mismatch!" if hash_calculated != hash_known else ""}'
+                )
+            if hash_calculated != hash_known:
+                deps_mismatches.append(deps_url)
+            deps_hashes_calculated.append(hash_calculated)
 
-    if len(deps_mismatches) == 0:
-        logger.debug(f'{" "*log_indentation}  No changes detected.')
-    else:
-        logger.debug(f'{" "*log_indentation}  Changes detected in: {deps_mismatches}')
-        requires_reviewing = True
-        upsertProperty(
-            root, "pwrt:inspector:value-deps-hashes", ";".join(deps_hashes_calculated)
-        )
+        if len(deps_mismatches) == 0:
+            logger.debug(f'{" "*log_indentation}  No changes detected.')
+        else:
+            logger.debug(f'{" "*log_indentation}  Changes detected in: {deps_mismatches}')
+            requires_reviewing = True
+            upsertProperty(
+                root, "pwrt:inspector:value-deps-hashes", ";".join(deps_hashes_calculated)
+            )
 
     value_new_str = "~none~"
-    value_ref = root.find("./properties[@key='pwrt:inspector:value-ref']")
     if value_ref is not None:
         value_ref_url: str = value_ref.get("value")
         logger.debug(f'{" "*log_indentation}  Processing value ref: {value_ref_url}')
