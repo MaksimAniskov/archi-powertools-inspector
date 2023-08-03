@@ -44,9 +44,16 @@ class UrlResolver(plugin_registry.IUrlResolver):
         )
         project = gl.projects.get(match.group("project_id"))
         try:
-            return project.files.get(
+            all_lines = project.files.get(
                 file_path=match.group("file_path"), ref=match.group("ref")
             ).decode()
+
+            m = re.match(r"L(?P<from>\d+)(-(?P<to>\d+))?", url_parsed.fragment)
+            from_line: int = int(m.group("from"))
+            to_line: int = int(m.group("to")) if m.group("to") else None
+            lines = all_lines.split(b"\n")[from_line - 1 : to_line if to_line else from_line]
+            return b"\n".join(lines)
+        
         except gitlab.GitlabGetError as e:
             self._logger.warning(f"{e.error_message}: {url}")
             return None
