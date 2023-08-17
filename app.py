@@ -12,6 +12,9 @@ import io
 import os
 import pathlib
 
+logger = None
+plugins = None
+
 
 def __description() -> str:
     return "TODO: Description"
@@ -98,6 +101,8 @@ def redact_url(url: str) -> str:
 def processFile(
     file_name: str, out_file_name: str = None, log_indentation: int = 0
 ) -> bool:
+    global logger, plugins
+
     logger.info(f'{" "*log_indentation}Processing file: {file_name}')
 
     if out_file_name is None:
@@ -126,7 +131,9 @@ def processFile(
         deps_mismatches: typing.List[str] = []
         deps_hashes_calculated: typing.List[str] = []
         for i, deps_url in enumerate(deps_arr):
-            logger.debug(f'{" "*log_indentation}  Processing value dependency: {deps_url}')
+            logger.debug(
+                f'{" "*log_indentation}  Processing value dependency: {deps_url}'
+            )
             url = urllib.parse.urlparse(deps_url)
             url_resolver: plugin_registry.IUrlResolver = plugin_registry.getUrlResolver(
                 plugins, url.scheme
@@ -152,10 +159,14 @@ def processFile(
         if len(deps_mismatches) == 0:
             logger.debug(f'{" "*log_indentation}  No changes detected.')
         else:
-            logger.debug(f'{" "*log_indentation}  Changes detected in: {deps_mismatches}')
+            logger.debug(
+                f'{" "*log_indentation}  Changes detected in: {deps_mismatches}'
+            )
             requires_reviewing = True
             upsertProperty(
-                root, "pwrt:inspector:value-deps-hashes", ";".join(deps_hashes_calculated)
+                root,
+                "pwrt:inspector:value-deps-hashes",
+                ";".join(deps_hashes_calculated),
             )
 
     value_new_str = "~none~"
@@ -218,7 +229,9 @@ def processFile(
         return False
 
 
-if __name__ == "__main__":
+def main():
+    global logger, plugins
+
     __cli_args = __init_cli().parse_args()
 
     logging.basicConfig(
@@ -226,7 +239,7 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger("app")
 
-    plugins: typing.List[plugin_registry.IPlugin] = plugin_registry.Registry(
+    plugins = plugin_registry.Registry(
         plugin_directory="plugins", logger=logger
     ).loadPlugins()
     plugins = [P(logger) for P in plugins]
@@ -270,3 +283,7 @@ if __name__ == "__main__":
         cloned_repo.remotes.origin.push()
 
     logger.info("Done")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

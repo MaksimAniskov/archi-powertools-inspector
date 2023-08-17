@@ -13,7 +13,7 @@ class IPluginRegistry(type):
 
 class IUrlResolver:
     def resolveToContent(self, url: str) -> str | None:
-        pass
+        pass # pragma: no cover
 
     def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
@@ -24,4 +24,4 @@ class IPlugin(object, metaclass=IPluginRegistry):
         self._logger = logger
 
     def getUrlResolver(self, scheme: str) -> IUrlResolver:
-        pass
+        pass # pragma: no cover

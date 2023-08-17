@@ -22,7 +22,7 @@ class Registry:
 
         return plugin_registry.IPluginRegistry.plugins
 
-    def setupPlugins(self) -> None:
+    def setupPlugins(self) -> None: # pragma: no cover
         self._logger.debug(
             f"Searching for plugins under package {self._plugin_directory}"
         )
