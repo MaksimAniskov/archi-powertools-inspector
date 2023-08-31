@@ -22,7 +22,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
     def __init__(self, logger: logging.Logger) -> str:
         super().__init__(logger)
 
-    def resolveToContent(self, url: str) -> str | None:
+    def resolveToContent(self, url: str) -> plugin_registry.contract.IContent | None:
         url = urllib.parse.urlparse(url)
         try:
             with open(url.path, "rb") as file:
@@ -30,10 +30,12 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
                 from_line: int = int(m.group("from"))
                 to_line: int = int(m.group("to")) if m.group("to") else None
-                lines = file.readlines()[from_line - 1 : to_line if to_line else from_line]
+                lines = file.readlines()[
+                    from_line - 1 : to_line if to_line else from_line
+                ]
 
                 file.close()
-                return b"".join(lines)
+                return plugin_registry.contract.IContent(content=b"".join(lines))
         except FileNotFoundError as e:
-            self._logger.warning(f'{e.strerror}: {e.filename}')
+            self._logger.warning(f"{e.strerror}: {e.filename}")
             return None
