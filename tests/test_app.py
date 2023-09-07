@@ -329,6 +329,65 @@ class TestProcessFileWithVersioning:
 """
             )
 
+    def test_value_ref_LinesMoved_no_content(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L3"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L4",
+                    current_lines_content=None,
+                )
+            )
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IVersionedContent(
+                    content=b"fakecontent",
+                    last_commit_id="a996319a",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L3"
+                )
+
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d5#L4"
+            )
+
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="fakecontent"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L4"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
     def test_value_ref_LinesMoved_no_known_value(self):
         file_content = """
             <root>
