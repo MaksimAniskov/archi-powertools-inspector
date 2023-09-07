@@ -271,7 +271,7 @@ def processFile(
                     )
                 else:
                     value_new_str = value_known_str
-            if value_new_str != value_known_str:
+            if value_known is None or value_new_str != value_known_str:
                 changed_detected = True
                 requires_reviewing = True
                 upsertProperty(root, "pwrt:inspector:value-new", value_new_str)

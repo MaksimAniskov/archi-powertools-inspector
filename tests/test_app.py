@@ -892,32 +892,30 @@ class TestProcessFileWithVersioning:
             )
             with mock.patch("app.plugins", [mock_plugin]):
                 changes_detected = app.processFile("somefile.xml")
-                assert not changes_detected
-# FIXME: ?
-#                 assert changes_detected
-#                 mock_file.assert_called_with("somefile.xml", "w")
-#                 mock_file.return_value.close.assert_called_with()
-#                 mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-#                     "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-#                 )
-#             assert (
-#                 lib.reconstructOutput(mock_file.return_value)
-#                 == """<root>
-#   <properties
-#       key="pwrt:inspector:value-new"
-#       value="~none~"/>
-#   <properties
-#       key="pwrt:inspector:value-ref"
-#       value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
-#   <properties
-#       key="pwrt:inspector:value-regexp"
-#       value="(.*)"/>
-#   <properties
-#       key="pwrt:inspector:value-requires-reviewing"
-#       value="true"/>
-# </root>
-# """
-#             )
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="~none~"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
 
     def test_value_ref_no_diff_detected_no_known_value_regexp_does_not_match(self):
         file_content = """
