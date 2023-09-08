@@ -363,7 +363,7 @@ class TestProcessFileWithVersioning:
                 )
 
             mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                "someproto://some.host/some/path/file.ext@a1b2c3d5#L4"
+                "someproto://some.host/some/path/file.ext#L4"
             )
 
             assert (

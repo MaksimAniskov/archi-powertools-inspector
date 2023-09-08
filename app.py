@@ -242,7 +242,14 @@ def processFile(
                 changed_detected = True
                 upsertProperty(root, "pwrt:inspector:value-ref", diff.updated_url)
                 if diff.current_lines_content is None:
-                    current_lines_content = url_resolver.resolveToContent(diff.updated_url).content.decode('utf-8')
+                    url_without_sha1 = re.sub(
+                        r"@[a-fA-F0-9]+(#L.*)?$",
+                        r"\1",
+                        diff.updated_url,
+                    )
+                    current_lines_content = url_resolver.resolveToContent(
+                        url_without_sha1
+                    ).content.decode("utf-8")
                 else:
                     current_lines_content = diff.current_lines_content
                 search_res = re.search(value_regexp_str, current_lines_content)
