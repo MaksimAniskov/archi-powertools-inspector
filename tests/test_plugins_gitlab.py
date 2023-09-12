@@ -1718,6 +1718,23 @@ class TestGitLabPlugin:
         assert diff1 == None
         assert diff2 == None
 
+    def test_diff_malformed_url_fragment(
+        self, gl, url_resolver, repository_compare_mock_result
+    ):
+        gl.return_value.projects.get.return_value.repository_compare.return_value = (
+            repository_compare_mock_result
+        )
+        diff = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@a1b2c3d4#L2<-lines deleted"
+        )
+        # Non-numeric symbols terminating line number sequence get ignored.
+        assert type(diff) == plugin_registry.contract.IDiffLinesMoved
+        assert (
+            diff.updated_url
+            == "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@9f8e7d6c#L3"
+        )
+        assert diff.current_lines_content == "line2"
+
     def test_resolveToContent(self, gl, url_resolver):
         gl.return_value.projects.get.return_value.files.get.return_value.decode.return_value = (
             b"fakefilecontent\nline2\nline3"

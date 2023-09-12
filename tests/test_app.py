@@ -1021,6 +1021,38 @@ class TestProcessFileWithVersioning:
 """
             )
 
+    def test_deps_non_reviewed(self):
+        # If value-requires-reviewing present, processFile is expected to exit without processing
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1&lt;-lines deleted"/>
+                <properties key="pwrt:inspector:value-requires-reviewing" value="true"/>
+            </root>
+        """
+        with mock.patch("builtins.open", mock.mock_open(read_data=file_content)):
+            mock_plugin = mock.MagicMock()
+            with mock.patch("app.plugins", [mock_plugin]) as mock_file:
+                changes_detected = app.processFile("somefile.xml")
+                assert not changes_detected
+                mock_plugin.getUrlResolver.assert_not_called()
+
+    def test_value_ref_non_reviewed(self):
+        # If value-requires-reviewing present, processFile is expected to exit without processing
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1&lt;-lines deleted"/>
+                <properties key="pwrt:inspector:value-requires-reviewing" value="true"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert not changes_detected
+                mock_plugin.getUrlResolver.assert_not_called()
+
 
 @pytest.fixture
 def mock_plugin():

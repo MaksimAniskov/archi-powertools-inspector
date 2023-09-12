@@ -114,6 +114,9 @@ def processFile(
     tree = ET.parse(file_name)
     root = tree.getroot()
 
+    if root.find("./properties[@key='pwrt:inspector:value-requires-reviewing']") is not None:
+        return False
+
     deps = root.find("./properties[@key='pwrt:inspector:value-deps']")
     value_ref = root.find("./properties[@key='pwrt:inspector:value-ref']")
     if deps is None and value_ref is None:
