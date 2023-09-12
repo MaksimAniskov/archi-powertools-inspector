@@ -1527,6 +1527,110 @@ class TestGitLabPlugin:
             == "line20\nline21 @@ -20,5 +21,6 @@ control symbols in file's content\nline22\ninserted line2\nline23\nline24"
         )
 
+    def test_diff_two_consecutive_lines1(self, gl, url_resolver):
+        repository_compare_mock_result = {
+            "commit": {"short_id": "9f8e7d6c"},
+            "diffs": [
+                {
+                    "old_path": "some/path/file1.txt",
+                    "diff": """@@ -2,7 +2,7 @@line1
+ line2
+ line3
+ line4
+-line5
+-line6
++line5 changed
++line6 changed
+ line7
+ line8
+""",
+                },
+            ],
+        }
+        gl.return_value.projects.get.return_value.repository_compare.return_value = (
+            repository_compare_mock_result
+        )
+        diff = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@a1b2c3d4#L5"
+        )
+        assert type(diff) == plugin_registry.contract.IDiffContentChanged
+        assert (
+            diff.updated_url
+            == "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@9f8e7d6c#L5<-lines deleted"  # FIXME: It should be "#L5"
+        )
+        assert diff.was_lines_content == "line5"
+        assert diff.current_lines_content == ""  # FIXME: It should be "line5 changed"
+
+    def test_diff_two_consecutive_lines2(self, gl, url_resolver):
+        repository_compare_mock_result = {
+            "commit": {"short_id": "9f8e7d6c"},
+            "diffs": [
+                {
+                    "old_path": "some/path/file1.txt",
+                    "diff": """@@ -2,7 +2,7 @@line1
+ line2
+ line3
+ line4
+-line5
+-line6
++line5 changed
++line6 changed
+ line7
+ line8
+""",
+                },
+            ],
+        }
+        gl.return_value.projects.get.return_value.repository_compare.return_value = (
+            repository_compare_mock_result
+        )
+        diff = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@a1b2c3d4#L6"
+        )
+        assert type(diff) == plugin_registry.contract.IDiffContentChanged
+        assert (
+            diff.updated_url
+            == "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@9f8e7d6c#L5-6"  # FIXME: It should be "#L6"
+        )
+        assert diff.was_lines_content == "line6"
+        assert (
+            diff.current_lines_content == "line5 changed\nline6 changed"
+        )  # FIXME: It should be "line6 changed"
+
+    def test_diff_two_consecutive_lines3(self, gl, url_resolver):
+        repository_compare_mock_result = {
+            "commit": {"short_id": "9f8e7d6c"},
+            "diffs": [
+                {
+                    "old_path": "some/path/file1.txt",
+                    "diff": """@@ -2,7 +2,7 @@line1
+ line2
+ line3
+ line4
+-line5
+-line6
++line5 changed
++line6 changed
+ line7
+ line8
+""",
+                },
+            ],
+        }
+        gl.return_value.projects.get.return_value.repository_compare.return_value = (
+            repository_compare_mock_result
+        )
+        diff = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@a1b2c3d4#L5-6"
+        )
+        assert type(diff) == plugin_registry.contract.IDiffContentChanged
+        assert (
+            diff.updated_url
+            == "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@9f8e7d6c#L5-6"
+        )
+        assert diff.was_lines_content == "line5\nline6"
+        assert diff.current_lines_content == "line5 changed\nline6 changed"
+
     def test_diff_empty_diffs(self, gl, url_resolver):
         repository_compare_mock_result = {
             "commit": {"short_id": "9f8e7d6c"},
