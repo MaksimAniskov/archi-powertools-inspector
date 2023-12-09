@@ -1109,6 +1109,42 @@ class TestProcessFile:
 """
         )
 
+    def test_out_file(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(b"fakecontent")
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml", "outfile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("outfile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                    "someproto://some.host/some/path/file.ext#L1"
+                )
+        assert (
+            lib.reconstructOutput(mock_file.return_value)
+            == """<root>
+  <properties
+      key="pwrt:inspector:value-deps"
+      value="someproto://some.host/some/path/file.ext#L1"/>
+  <properties
+      key="pwrt:inspector:value-deps-hashes"
+      value="d5683b61"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+        )
+
     def test_deps_no_content(self, mock_plugin):
         file_content = """
             <root>
@@ -1376,12 +1412,18 @@ class TestMain(unittest.TestCase):
         os_path_exists.return_value = False
         pathlib_path.return_value.glob.return_value = ["fakefile.txt"]
         processFile.return_value = True  # Changes detected
+        diffItem = mock.Mock()
+        diffItem.a_path = "difffakefile.txt"
+        git_repo.clone_from.return_value.index.diff.return_value = [diffItem]
 
         app.main()
 
         processFile.assert_called_with("fakefile.txt")
-        git_repo.clone_from.return_value.index.diff.assert_called_with(None)
-        git_repo.clone_from.return_value.index.add.assert_called()
+        git_repo.clone_from.return_value.index.diff.assert_called_once_with(None)
+        git_repo.clone_from.return_value.index.add.assert_called_once()
+        assert list(git_repo.clone_from.return_value.index.add.call_args.args[0]) == [
+            "difffakefile.txt"
+        ]
         git_repo.clone_from.return_value.index.commit.assert_called_with(
             "Report detected changes",
             author=git.Actor("Archi Power Tools Inspector", "some@email.com"),
