@@ -1,4 +1,3 @@
-from typing import Any
 import app
 import plugin_registry
 import xml.etree.ElementTree as ET
@@ -94,18 +93,98 @@ def test_redact_url():
 
 
 @mock.patch("app.logger", logging.getLogger("test"))
-class TestProcessFile:
-    def test_minimalistic(self):
-        file_content = "<root/>"
+class TestProcessFileWithVersioning:
+    def test_deps_LinesMoved(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+            </root>
+        """
         with mock.patch(
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
-            changes_detected = app.processFile("somefile.xml")
-            assert not changes_detected
-            mock_file.assert_called_with("somefile.xml", "rb")
-            mock_file.return_value.close.assert_called_with()
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    current_lines_content="fakecontent",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-deps"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+</root>
+"""
+            )
 
-    def test_deps(self):
+    def test_deps_ContentChanged(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L2-4"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = plugin_registry.contract.IDiffContentChanged(
+                updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L3-5",
+                current_lines_content="line2 changed\nline3\nline4",
+                was_lines_content="line2\nline3\nline4",
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L2-4"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-deps"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L3-5"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_deps_no_diff_detected(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = False
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert not changes_detected
+                mock_file.return_value.write.assert_not_called()
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+
+    def test_deps_no_ref(self):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -116,7 +195,10 @@ class TestProcessFile:
         ) as mock_file:
             mock_plugin = mock.MagicMock()
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
-                b"fakecontent"
+                plugin_registry.contract.IVersionedContent(
+                    content=b"fakecontent",
+                    last_commit_id="a996319a",
+                )
             )
             with mock.patch("app.plugins", [mock_plugin]):
                 changes_detected = app.processFile("somefile.xml")
@@ -126,46 +208,190 @@ class TestProcessFile:
                 mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
                     "someproto://some.host/some/path/file.ext#L1"
                 )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-deps"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
 
-    def test_deps_no_content(self):
+    def test_deps_plugin_mix(self):
         file_content = """
             <root>
-                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-deps"
+                  value="proto1://some.host/file1.ext#L1;proto2://some.host/file2.ext@a1b2c3d4#L1;proto1://some.host/file3.ext#L2"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            url_resolver1 = mock.MagicMock()
+            url_resolver1.isVersioningSupported = False
+            mock_plugin1 = mock.MagicMock()
+            mock_plugin1.getUrlResolver = mock.MagicMock(
+                side_effect=(lambda proto: url_resolver1 if proto == "proto1" else None)
+            )
+
+            url_resolver2 = mock.MagicMock()
+            mock_plugin2 = mock.MagicMock()
+            mock_plugin2.getUrlResolver = mock.MagicMock(
+                side_effect=(lambda proto: url_resolver2 if proto == "proto2" else None)
+            )
+
+            url_resolver1.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(content=b"fakecontent")
+            )
+
+            url_resolver2.diff.return_value = (
+                plugin_registry.contract.IDiffContentChanged(
+                    updated_url="proto2://some.host/file2.ext@a1b2c3d5#L2",
+                    current_lines_content="line1 changed",
+                    was_lines_content="line1",
+                )
+            )
+
+            with mock.patch("app.plugins", [mock_plugin1, mock_plugin2]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                url_resolver1.resolveToContent.assert_has_calls(
+                    [
+                        unittest.mock.call("proto1://some.host/file1.ext#L1"),
+                        unittest.mock.call("proto1://some.host/file3.ext#L2"),
+                    ],
+                    any_order=True,
+                )
+                url_resolver2.diff.assert_called_with(
+                    "proto2://some.host/file2.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-deps"
+      value="proto1://some.host/file1.ext#L1;proto2://some.host/file2.ext@a1b2c3d5#L2;proto1://some.host/file3.ext#L2"/>
+  <properties
+      key="pwrt:inspector:value-deps-hashes"
+      value="d5683b61;;d5683b61"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_LinesMoved(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
             </root>
         """
         with mock.patch(
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
             mock_plugin = mock.MagicMock()
-            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = None
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    current_lines_content="knownvalue",
+                )
+            )
             with mock.patch("app.plugins", [mock_plugin]):
                 changes_detected = app.processFile("somefile.xml")
-                assert not changes_detected
-                mock_file.assert_called_with("somefile.xml", "rb")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
                 mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
                 )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+</root>
+"""
+            )
 
-    def test_deps_no_plugin(self):
+    def test_value_ref_LinesMoved_no_content(self):
         file_content = """
             <root>
-                <properties key="pwrt:inspector:value-deps" value="wrongproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L3"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
             </root>
         """
         with mock.patch(
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
             mock_plugin = mock.MagicMock()
-            mock_plugin.getUrlResolver.return_value = None
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L4",
+                    current_lines_content=None,
+                )
+            )
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IVersionedContent(
+                    content=b"fakecontent",
+                    last_commit_id="a996319a",
+                )
+            )
             with mock.patch("app.plugins", [mock_plugin]):
-                with pytest.raises(AttributeError):
-                    app.processFile("somefile.xml")
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L3"
+                )
 
-    def test_value_ref(self):
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L4"
+            )
+
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="fakecontent"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L4"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_LinesMoved_no_known_value(self):
         file_content = """
             <root>
-                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
                 <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
             </root>
         """
@@ -173,36 +399,335 @@ class TestProcessFile:
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
             mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    current_lines_content="fakecontent",
+                )
+            )
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
-                b"fakecontent"
+                plugin_registry.contract.IVersionedContent(
+                    content=b"newvalue",
+                    last_commit_id="a996319a",
+                )
             )
             with mock.patch("app.plugins", [mock_plugin]):
                 changes_detected = app.processFile("somefile.xml")
                 assert changes_detected
                 mock_file.assert_called_with("somefile.xml", "w")
                 mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
                 )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="fakecontent"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
 
-    def test_value_ref_no_regexp(self):
+    def test_value_ref_LinesMoved_no_known_value_no_content(self, mock_plugin):
         file_content = """
             <root>
-                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
             </root>
         """
         with mock.patch(
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
             mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    current_lines_content="",
+                )
+            )
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
-                b"fakecontent"
+                plugin_registry.contract.IVersionedContent(
+                    content=None,
+                    last_commit_id="a996319a",
+                )
             )
             with mock.patch("app.plugins", [mock_plugin]):
-                with pytest.raises(AttributeError):
-                    app.processFile("somefile.xml")
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value=""/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
 
-    def test_value_ref_known_value(self):
+    def test_value_ref_LinesMoved_regexp_does_not_match(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="aaa(.+)bbb"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    current_lines_content="fakecontent",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="~none~"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="aaa(.+)bbb"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_ContentChanged(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffContentChanged(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    was_lines_content="knownvalue",
+                    current_lines_content="newvalue",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="newvalue"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_ContentChanged_no_known_value(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffContentChanged(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    was_lines_content="knownvalue",
+                    current_lines_content="newvalue",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_not_called()
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="newvalue"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_ContentChanged_partial(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="123([a-z]+)456"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = (
+                plugin_registry.contract.IDiffContentChanged(
+                    updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2",
+                    was_lines_content="123knownvalue456",
+                    current_lines_content="xyz123newvalue456abc",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="newvalue"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="123([a-z]+)456"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_ContentChanged_lines_deleted(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = plugin_registry.contract.IDiffContentChanged(
+                updated_url="someproto://some.host/some/path/file.ext@a1b2c3d5#L2<-lines deleted",
+                was_lines_content="knownvalue",
+                current_lines_content="",
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value=""/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a1b2c3d5#L2&lt;-lines deleted"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_ref(self):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -215,7 +740,10 @@ class TestProcessFile:
         ) as mock_file:
             mock_plugin = mock.MagicMock()
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
-                b"fakecontent"
+                plugin_registry.contract.IVersionedContent(
+                    content=b"newvalue",
+                    last_commit_id="a996319a",
+                )
             )
             with mock.patch("app.plugins", [mock_plugin]):
                 changes_detected = app.processFile("somefile.xml")
@@ -225,6 +753,560 @@ class TestProcessFile:
                 mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
                     "someproto://some.host/some/path/file.ext#L1"
                 )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="newvalue"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_ref_no_known_value(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IVersionedContent(
+                    content=b"newvalue",
+                    last_commit_id="a996319a",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                    "someproto://some.host/some/path/file.ext#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="newvalue"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_diff_detected(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = False
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert not changes_detected
+                mock_file.assert_called_with("somefile.xml", "rb")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+
+    def test_value_ref_no_diff_detected_no_known_value(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = False
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IVersionedContent(
+                    content=b"fakecontent",
+                    last_commit_id="a996319a",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="fakecontent"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_diff_detected_no_known_value_partial(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="123([a-z]+)456"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = False
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IVersionedContent(
+                    content=b"123fakecontent456",
+                    last_commit_id="a996319a",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="fakecontent"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="123([a-z]+)456"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_diff_detected_no_known_value_no_content(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = False
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IVersionedContent(
+                    content=None,
+                    last_commit_id="a996319a",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="~none~"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_diff_detected_no_known_value_regexp_does_not_match(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="aaa(.+)bbb"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            mock_plugin.getUrlResolver.return_value.diff.return_value = False
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IVersionedContent(
+                    content=b"fakecontent",
+                    last_commit_id="a996319a",
+                )
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="~none~"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext@a996319a#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="aaa(.+)bbb"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_deps_non_reviewed(self):
+        # If value-requires-reviewing present, processFile is expected to exit without processing
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1&lt;-lines deleted"/>
+                <properties key="pwrt:inspector:value-requires-reviewing" value="true"/>
+            </root>
+        """
+        with mock.patch("builtins.open", mock.mock_open(read_data=file_content)):
+            mock_plugin = mock.MagicMock()
+            with mock.patch("app.plugins", [mock_plugin]) as mock_file:
+                changes_detected = app.processFile("somefile.xml")
+                assert not changes_detected
+                mock_plugin.getUrlResolver.assert_not_called()
+
+    def test_value_ref_non_reviewed(self):
+        # If value-requires-reviewing present, processFile is expected to exit without processing
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1&lt;-lines deleted"/>
+                <properties key="pwrt:inspector:value-requires-reviewing" value="true"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert not changes_detected
+                mock_plugin.getUrlResolver.assert_not_called()
+
+
+@pytest.fixture
+def mock_plugin():
+    mock_plugin = mock.MagicMock()
+    mock_plugin.getUrlResolver.return_value.isVersioningSupported = False
+    return mock_plugin
+
+
+@mock.patch("app.logger", logging.getLogger("test"))
+class TestProcessFile:
+    def test_minimalistic(self):
+        file_content = "<root/>"
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            changes_detected = app.processFile("somefile.xml")
+            assert not changes_detected
+            mock_file.assert_called_with("somefile.xml", "rb")
+            mock_file.return_value.close.assert_called_with()
+
+    def test_deps(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(b"fakecontent")
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                    "someproto://some.host/some/path/file.ext#L1"
+                )
+        assert (
+            lib.reconstructOutput(mock_file.return_value)
+            == """<root>
+  <properties
+      key="pwrt:inspector:value-deps"
+      value="someproto://some.host/some/path/file.ext#L1"/>
+  <properties
+      key="pwrt:inspector:value-deps-hashes"
+      value="d5683b61"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+        )
+
+    def test_deps_no_content(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            with mock.patch(
+                "builtins.open", mock.mock_open(read_data=file_content)
+            ) as mock_file:
+                mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                    None
+                )
+                with mock.patch("app.plugins", [mock_plugin]):
+                    changes_detected = app.processFile("somefile.xml")
+                    assert not changes_detected
+                    mock_file.assert_called_with("somefile.xml", "rb")
+                    mock_file.return_value.close.assert_called_with()
+                    mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                        "someproto://some.host/some/path/file.ext#L1"
+                    )
+
+    def test_deps_no_plugin(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps" value="wrongproto://some.host/some/path/file.ext#L1"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value = None
+            with mock.patch("app.plugins", [mock_plugin]):
+                with pytest.raises(AttributeError):
+                    app.processFile("somefile.xml")
+
+    def test_value_ref(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(b"fakecontent")
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                    "someproto://some.host/some/path/file.ext#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="fakecontent"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_content(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(None)
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert not changes_detected
+
+    def test_value_ref_regexp_does_not_match(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="aaa(.+)bbb"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(b"thisshouldnotmatch")
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                    "someproto://some.host/some/path/file.ext#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="~none~"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="aaa(.+)bbb"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
+    def test_value_ref_no_regexp(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                b"fakecontent"
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                with pytest.raises(AttributeError):
+                    app.processFile("somefile.xml")
+
+    def test_value_ref_known_value(self, mock_plugin):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(b"fakecontent")
+            )
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+                mock_file.assert_called_with("somefile.xml", "w")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                    "someproto://some.host/some/path/file.ext#L1"
+                )
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="fakecontent"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
 
 
 def test_main_no_args():
