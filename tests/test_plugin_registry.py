@@ -22,3 +22,6 @@ def test_getUrlResolver_file(plugins):
 
 def test_getUrlResolver_gitlab(plugins):
     assert plugin_registry.getUrlResolver(plugins=plugins, scheme="gitlab") != None
+
+def test_getUrlResolver_boto3(plugins):
+    assert plugin_registry.getUrlResolver(plugins=plugins, scheme="boto3") != None

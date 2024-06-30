@@ -1,0 +1,7 @@
+secretsmanager:
+  - get_secret_value
+
+ssm:
+  - get_parameter
+  - get_parameters
+  - get_parameters_by_path
