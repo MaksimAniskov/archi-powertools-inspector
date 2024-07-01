@@ -30,6 +30,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
     ) -> None:
         super().__init__(logger)
         self._whitelisted_services_and_methods = whitelisted_services_and_methods
+        self._boto_results_cache = {}
 
     def resolveToContent(
         self, url: str
@@ -53,18 +54,24 @@ class UrlResolver(plugin_registry.IUrlResolver):
                     f"Boto3 service/method is not whitelisted: {aws_service_name}.{method_name}"
                 )
 
-            client = boto3.client(aws_service_name)
-            method = getattr(client, method_name)
+            cache_key = f"{aws_service_name}/{method_name}?{method_params}"
 
-            params = {}
-            for equation in method_params.split("&"):
-                match = re.match(
-                    r"(?P<name>[^=]+)=(?P<value>.+)",
-                    equation,
-                )
-                params[match.group("name")] = match.group("value")
+            if cache_key not in self._boto_results_cache:
+                client = boto3.client(aws_service_name)
+                method = getattr(client, method_name)
 
-            response = method(**params)
+                params = {}
+                for equation in method_params.split("&"):
+                    match = re.match(
+                        r"(?P<name>[^=]+)=(?P<value>.+)",
+                        equation,
+                    )
+                    params[match.group("name")] = match.group("value")
+
+                response = method(**params)
+                self._boto_results_cache[cache_key] = response
+
+            response = self._boto_results_cache[cache_key]
 
             if value_to_return == "":
                 result = str(response)

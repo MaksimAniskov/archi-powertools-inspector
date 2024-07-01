@@ -24,7 +24,10 @@ secretsmanager:
 
 @pytest.fixture
 def url_resolver(plugins):
-    return plugin_registry.getUrlResolver(plugins=plugins, scheme="boto3")
+    res = plugin_registry.getUrlResolver(plugins=plugins, scheme="boto3")
+    res._boto_results_cache = {}  # Clear the resolver's cache.
+    return res
+
 
 @mock.patch("boto3.client")
 class TestBoto3Plugin:
@@ -55,7 +58,21 @@ class TestBoto3Plugin:
         assert content_obj is None
 
     def test_resolveToContentNotWhitelistedService(self, boto3client, url_resolver):
-        content_obj = url_resolver.resolveToContent(
-            "boto3://someservice/some_method"
-        )
+        content_obj = url_resolver.resolveToContent("boto3://someservice/some_method")
         assert content_obj is None
+
+    def test_caching(self, boto3client, plugins):
+        url_resolver = plugin_registry.getUrlResolver(plugins=plugins, scheme="boto3")
+        url_resolver._boto_results_cache = {}  # Clear the resolver's cache.
+
+        boto3client.return_value.get_secret_value.return_value = {
+            "SecretString": '{"key1":"value1"}'
+        }
+        content_obj1 = url_resolver.resolveToContent(
+            "boto3://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:425828444339:secret:my/secret-W0Wo0L"
+        )
+        content_obj2 = url_resolver.resolveToContent(
+            "boto3://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:425828444339:secret:my/secret-W0Wo0L#SecretString"
+        )
+
+        boto3client.assert_called_once()
