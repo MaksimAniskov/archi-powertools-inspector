@@ -287,6 +287,40 @@ class TestProcessFileWithVersioning:
 """
             )
 
+    def test_deps_multiple_only_1_changes(self):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value-deps"
+                  value="proto://some.host/file1.ext@a1b2c3d4#L1;proto://some.host/file2.ext@ffffffff#L999"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin = mock.MagicMock()
+            # mock_plugin.getUrlResolver.return_value.diff.return_value = lambda url: (
+            mock_plugin.getUrlResolver.return_value.diff = lambda url: (
+                plugin_registry.contract.IDiffLinesMoved(
+                    updated_url="proto://some.host/file1.ext@a1b2c3d5#L2",
+                    current_lines_content="fakecontent",
+                )
+                if url == "proto://some.host/file1.ext@a1b2c3d4#L1"
+                else False
+            )
+
+            with mock.patch("app.plugins", [mock_plugin]):
+                changes_detected = app.processFile("somefile.xml")
+                assert changes_detected
+            assert (
+                lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value-deps"
+      value="proto://some.host/file1.ext@a1b2c3d5#L2;proto://some.host/file2.ext@ffffffff#L999"/>
+</root>
+"""
+            )
+
     def test_value_ref_LinesMoved(self):
         file_content = """
             <root>

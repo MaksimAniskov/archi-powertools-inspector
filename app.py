@@ -151,9 +151,11 @@ def processFile(
                 new_deps_hashes.append("")
                 diff: plugin_registry.contract.IDiff = url_resolver.diff(deps_url)
                 logger.debug(f'{" "*log_indentation}    Diff: {diff}')
-                if diff != False:
-                    changed_detected = True
+                if diff == False:
+                    new_deps_arr.append(deps_url)
+                else:
                     new_deps_arr.append(diff.updated_url)
+                    changed_detected = True
                     deps_mismatches.append(deps_url)
                     if type(diff) == plugin_registry.contract.IDiffContentChanged:
                         requires_reviewing = True
