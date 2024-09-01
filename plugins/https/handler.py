@@ -38,6 +38,6 @@ class UrlResolver(plugin_registry.IUrlResolver):
                 self._logger.warning(f"{r.status_code} {r.reason}: {url}")
                 self._cache[cache_key] = None
             else:
-                self._cache[cache_key] = plugin_registry.contract.IContent(r.text)
+                self._cache[cache_key] = plugin_registry.contract.IContent(r.text.encode())
 
         return self._cache[cache_key]

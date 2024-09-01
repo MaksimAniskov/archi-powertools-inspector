@@ -42,7 +42,7 @@ class TestHttpsPlugin:
             "https://gitlab.mycompany.com/api/v4/projects/12345/variables/TEST1"
         )
         assert type(content_obj) == plugin_registry.contract.IContent
-        assert content_obj.content == test_content
+        assert content_obj.content == test_content.encode()
 
     def test_errorStatusCode(self, get, url_resolver):
         get.return_value.status_code = 401
