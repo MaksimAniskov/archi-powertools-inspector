@@ -25,3 +25,6 @@ def test_getUrlResolver_gitlab(plugins):
 
 def test_getUrlResolver_boto3(plugins):
     assert plugin_registry.getUrlResolver(plugins=plugins, scheme="boto3") != None
+
+def test_getUrlResolver_https(plugins):
+    assert plugin_registry.getUrlResolver(plugins=plugins, scheme="https") != None
