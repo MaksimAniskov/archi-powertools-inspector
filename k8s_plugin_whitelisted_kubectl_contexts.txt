@@ -1,0 +1,3 @@
+localhost
+eks-dev-cluster
+eks-prod-cluster
