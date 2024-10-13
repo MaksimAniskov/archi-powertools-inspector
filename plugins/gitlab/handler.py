@@ -7,6 +7,10 @@ import re
 
 MY_SCHEME_NAME = "gitlab"
 
+# Examples:
+# gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@7e38559d#L2-3
+# gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt@7e38559d#L2-3
+
 
 class GitLab(plugin_registry.contract.IPlugin):
     _url_resolver: plugin_registry.IUrlResolver
@@ -26,6 +30,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
         self.isVersioningSupported = True
         self._gls = {}
         self._repository_compare_cache = {}
+        self._environments_cache = {}
 
     def _getGL(self, url: str):
         url_parsed = urllib.parse.urlparse(url)
@@ -56,12 +61,37 @@ class UrlResolver(plugin_registry.IUrlResolver):
         ref_from = match.group("ref_from")
         ref_to = match.group("ref_to")
 
+        match = re.match(
+            # Example:
+            # ${environment('production').last_deployment.sha}
+            # ${environment("production").last_deployment.sha}
+            r"\${environment\([\"'](?P<environment_name>[^\"']+)[\"']\).last_deployment.sha}",
+            ref_to,
+        )
+        environment_name = None
+        if match:
+            environment_name = match.group("environment_name")
+
         try:
             if url_parsed.path not in self._repository_compare_cache:
                 project = gl.projects.get(project_id)
-                self._repository_compare_cache[
-                    url_parsed.path
-                ] = project.repository_compare(from_=ref_from, to=ref_to)
+
+                if environment_name:
+                    environment_cache_key = f"{project_id}:{environment_name}"
+                    if environment_cache_key not in self._environments_cache:
+                        environments = project.environments.list()
+                        environment_id = [
+                            e for e in environments if e.name == environment_name
+                        ][0].id
+                        environment = project.environments.get(environment_id)
+                        self._environments_cache[environment_cache_key] = environment
+
+                    environment = self._environments_cache[environment_cache_key]
+                    ref_to = environment.last_deployment.sha
+
+                self._repository_compare_cache[url_parsed.path] = (
+                    project.repository_compare(from_=ref_from, to=ref_to)
+                )
             elif self._repository_compare_cache[url_parsed.path] is None:
                 return None
             compare_result = self._repository_compare_cache[url_parsed.path]
@@ -178,12 +208,16 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
             tmp = "\n".join(
                 new_lines_arr[
-                    new_first_line_number - chunk_new_first_line_number
-                    if new_first_line_number - chunk_new_first_line_number > 0
-                    else None : new_last_line_number - chunk_new_first_line_number + 1
-                    if new_last_line_number - chunk_new_first_line_number
-                    < len(new_lines_arr)
-                    else None
+                    (
+                        new_first_line_number - chunk_new_first_line_number
+                        if new_first_line_number - chunk_new_first_line_number > 0
+                        else None
+                    ) : (
+                        new_last_line_number - chunk_new_first_line_number + 1
+                        if new_last_line_number - chunk_new_first_line_number
+                        < len(new_lines_arr)
+                        else None
+                    )
                 ]
             )
             new_lines_content = (
@@ -194,12 +228,16 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
             tmp = "\n".join(
                 was_lines_arr[
-                    url_first_line_number - chunk_first_line_number
-                    if url_first_line_number - chunk_first_line_number > 0
-                    else None : url_last_line_number - chunk_first_line_number + 1
-                    if url_last_line_number - chunk_first_line_number
-                    < len(was_lines_arr)
-                    else None
+                    (
+                        url_first_line_number - chunk_first_line_number
+                        if url_first_line_number - chunk_first_line_number > 0
+                        else None
+                    ) : (
+                        url_last_line_number - chunk_first_line_number + 1
+                        if url_last_line_number - chunk_first_line_number
+                        < len(was_lines_arr)
+                        else None
+                    )
                 ]
             )
             was_lines_content = (

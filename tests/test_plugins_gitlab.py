@@ -5,6 +5,7 @@ from test_plugin_registry import plugins
 import os
 from unittest import mock
 import pytest
+import mock
 
 
 @pytest.fixture
@@ -16,6 +17,7 @@ def url_resolver(plugins):
     res._repository_compare_cache = (
         {}
     )  # Clear the resolver's cache of repository_compare return objects.
+    res._environments_cache = {}
     return res
 
 
@@ -1808,3 +1810,85 @@ class TestGitLabPlugin:
         )
 
         gl.return_value.enable_debug.assert_called()
+
+    def test_diff_environment_last_deployment1(
+        self, gl, url_resolver, repository_compare_mock_result
+    ):
+        env0 = mock.MagicMock(id="123")
+        env0.name = "some_name_1"
+        env1 = mock.MagicMock(id="456")
+        env1.name = "production"
+        env2 = mock.MagicMock(id="789")
+        env2.name = "some_name_2"
+        gl.return_value.projects.get.return_value.environments.list.return_value = [
+            env0,
+            env1,
+            env2,
+        ]
+
+        gl.return_value.projects.get.return_value.environments.get.return_value = (
+            mock.MagicMock(
+                last_deployment=mock.MagicMock(
+                    sha="0123456789abcdef0123456789abcdef01234567"
+                )
+            )
+        )
+
+        gl.return_value.projects.get.return_value.repository_compare.return_value = (
+            repository_compare_mock_result
+        )
+
+        diff = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt@a1b2c3d4#L2-3"
+        )
+        gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
+        gl.return_value.projects.get.assert_called_once_with("user/project")
+        gl.return_value.projects.get.return_value.environments.list.assert_called_once()
+        gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
+            "456"
+        )
+        gl.return_value.projects.get.return_value.repository_compare.assert_called_once_with(
+            from_="a1b2c3d4", to="0123456789abcdef0123456789abcdef01234567"
+        )
+
+    def test_diff_environment_last_deployment_caching(
+        self, gl, url_resolver, repository_compare_mock_result
+    ):
+        env0 = mock.MagicMock(id="123")
+        env0.name = "some_name_1"
+        env1 = mock.MagicMock(id="456")
+        env1.name = "production"
+        env2 = mock.MagicMock(id="789")
+        env2.name = "some_name_2"
+        gl.return_value.projects.get.return_value.environments.list.return_value = [
+            env0,
+            env1,
+            env2,
+        ]
+
+        gl.return_value.projects.get.return_value.environments.get.return_value = (
+            mock.MagicMock(
+                last_deployment=mock.MagicMock(
+                    sha="0123456789abcdef0123456789abcdef01234567"
+                )
+            )
+        )
+
+        gl.return_value.projects.get.return_value.repository_compare.return_value = (
+            repository_compare_mock_result
+        )
+
+        url_resolver._environments_cache = {}
+
+        url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt@a1b2c3d4#L2-3"
+        )
+
+        url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/other/path/file2.txt@01234567#L1"
+        )
+
+        gl.return_value.projects.get.return_value.environments.list.assert_called_once()
+        gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
+            "456"
+        )

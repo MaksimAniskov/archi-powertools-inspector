@@ -1,3 +1,4 @@
 GitPython == 3.*
 pytest
 pytest-cov
+mock
