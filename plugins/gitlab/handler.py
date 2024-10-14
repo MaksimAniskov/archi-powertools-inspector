@@ -87,7 +87,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
                         self._environments_cache[environment_cache_key] = environment
 
                     environment = self._environments_cache[environment_cache_key]
-                    ref_to = environment.last_deployment.sha
+                    ref_to = environment.last_deployment["sha"]
 
                 self._repository_compare_cache[url_parsed.path] = (
                     project.repository_compare(from_=ref_from, to=ref_to)

@@ -1826,12 +1826,10 @@ class TestGitLabPlugin:
             env2,
         ]
 
+        d = {}
+        d["sha"] = "0123456789abcdef0123456789abcdef01234567"
         gl.return_value.projects.get.return_value.environments.get.return_value = (
-            mock.MagicMock(
-                last_deployment=mock.MagicMock(
-                    sha="0123456789abcdef0123456789abcdef01234567"
-                )
-            )
+            mock.MagicMock(last_deployment=d)
         )
 
         gl.return_value.projects.get.return_value.repository_compare.return_value = (
@@ -1866,12 +1864,10 @@ class TestGitLabPlugin:
             env2,
         ]
 
+        d = {}
+        d["sha"] = "0123456789abcdef0123456789abcdef01234567"
         gl.return_value.projects.get.return_value.environments.get.return_value = (
-            mock.MagicMock(
-                last_deployment=mock.MagicMock(
-                    sha="0123456789abcdef0123456789abcdef01234567"
-                )
-            )
+            mock.MagicMock(last_deployment=d)
         )
 
         gl.return_value.projects.get.return_value.repository_compare.return_value = (
