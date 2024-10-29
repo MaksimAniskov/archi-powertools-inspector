@@ -1,14 +1,17 @@
 import logging
 import plugin_registry
 import boto3
+import json
+import jmespath
 import urllib.parse
 import yaml
 import re
 
-MY_SCHEME_NAME = "boto3"
+MY_SCHEMES = ["boto3", "boto3+json+jmespath"]
 
-# Example:
+# Examples:
 # boto3://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd#SecretString
+# boto3+json+jmespath://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd#SecretString/key1
 
 
 class Boto3(plugin_registry.contract.IPlugin):
@@ -21,7 +24,7 @@ class Boto3(plugin_registry.contract.IPlugin):
         logger.info(__class__.__name__ + " plugin loaded")
 
     def getUrlResolver(self, scheme: str) -> plugin_registry.IUrlResolver:
-        return self._url_resolver if scheme == MY_SCHEME_NAME else None
+        return self._url_resolver if scheme in MY_SCHEMES else None
 
 
 class UrlResolver(plugin_registry.IUrlResolver):
@@ -38,11 +41,18 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
         url_parsed = urllib.parse.urlparse(url)
 
+        is_jmespath_mode = url_parsed.scheme == "boto3+json+jmespath"
         aws_service_name = url_parsed.netloc  # E.g. secretsmanager
         method_name = url_parsed.path[1:]  # E.g. /get_secret_value
         method_params = url_parsed.query
         # E.g. SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd'
-        value_to_return = url_parsed.fragment  # E.g. SecretString
+
+        if is_jmespath_mode:
+            match=re.match(r"(?P<value_to_return>.+)/(?P<jmethpath_expression>.+)", url_parsed.fragment)
+            value_to_return = match.group("value_to_return") # E.g. SecretString
+            jmethpath_expression= match.group("jmethpath_expression") # E.g. key1
+        else:
+            value_to_return = url_parsed.fragment  # E.g. SecretString
 
         try:
             if (aws_service_name in self._whitelisted_services_and_methods) and (
@@ -77,6 +87,9 @@ class UrlResolver(plugin_registry.IUrlResolver):
                 result = str(response)
             else:
                 result = str(response[value_to_return])
+            if is_jmespath_mode:
+                json_doc = json.loads(result)
+                result = str(jmespath.search(jmethpath_expression, json_doc))
             return plugin_registry.contract.IContent(content=result.encode())
 
         except Exception as e:

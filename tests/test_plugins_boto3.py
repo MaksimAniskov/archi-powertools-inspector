@@ -76,3 +76,13 @@ class TestBoto3Plugin:
         )
 
         boto3client.assert_called_once()
+
+    def test_jmespath_resolveToContent(self, boto3client, url_resolver):
+        boto3client.return_value.get_secret_value.return_value = {
+            "SecretString": '{"key1":"value1"}'
+        }
+        content_obj = url_resolver.resolveToContent(
+            "boto3+json+jmespath://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:425828444339:secret:my/secret-W0Wo0L#SecretString/key1"
+        )
+        assert type(content_obj) == plugin_registry.contract.IContent
+        assert content_obj.content == b'value1'
