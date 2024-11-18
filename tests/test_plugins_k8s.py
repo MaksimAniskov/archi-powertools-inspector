@@ -1,7 +1,10 @@
 import plugin_registry
 import logging
+import unittest
 from unittest import mock
 import pytest
+
+import kubernetes
 
 builtin_open = open
 
@@ -136,3 +139,30 @@ class TestK8sPlugin:
         assert content_obj.content == b"my-nginx-ingress-class"
 
         k8s_client.return_value.resources.get.return_value.get.assert_called_once()
+
+    def test_resolveToContent_404(
+        self, k8s_client, url_resolver
+    ):
+        k8s_client.return_value.resources.get.return_value.get.side_effect = (
+            kubernetes.client.exceptions.ApiException(http_resp=mock.Mock(status=404))
+        )
+
+        content_obj = url_resolver.resolveToContent(
+            "k8s+jmespath://https://abc123.xyz.eu-west-1.eks.amazonaws.com/ns=some-namespace/networking.k8s.io/v1/Ingress/some-name#rules[0].host"
+        )
+        assert content_obj == None
+
+    def test_resolveToContent_503(
+        self, k8s_client, url_resolver
+    ):
+        k8s_client.return_value.resources.get.return_value.get.side_effect = (
+            kubernetes.client.exceptions.ApiException(http_resp=mock.Mock(status=503))
+        )
+
+        try:
+            url_resolver.resolveToContent(
+                "k8s+jmespath://https://abc123.xyz.eu-west-1.eks.amazonaws.com/ns=some-namespace/networking.k8s.io/v1/Ingress/some-name#rules[0].host"
+            )
+            assert(False) # pragma: no cover
+        except:
+            pass

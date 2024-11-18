@@ -67,31 +67,38 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
         cache_key = host + url_parsed.path
 
-        if cache_key not in self._k8s_results_cache:
-            config = kubernetes.client.Configuration()
-            kubernetes.config.load_kube_config(
-                context=self._host_name_to_kubectl_context_name[host],
-                client_configuration=config,
-            )
+        try:
+            if cache_key not in self._k8s_results_cache:
+                config = kubernetes.client.Configuration()
+                kubernetes.config.load_kube_config(
+                    context=self._host_name_to_kubectl_context_name[host],
+                    client_configuration=config,
+                )
 
-            client = kubernetes.dynamic.DynamicClient(
-                kubernetes.client.api_client.ApiClient(configuration=config)
-            )
+                client = kubernetes.dynamic.DynamicClient(
+                    kubernetes.client.api_client.ApiClient(configuration=config)
+                )
 
-            api = client.resources.get(
-                group=api_group, api_version=api_version, kind=resource_kind
-            )
+                api = client.resources.get(
+                    group=api_group, api_version=api_version, kind=resource_kind
+                )
 
-            response = api.get(
-                body=None,
-                name=resource_name,
-                namespace=namespace,
-            )
+                response = api.get(
+                    body=None,
+                    name=resource_name,
+                    namespace=namespace,
+                )
 
-            self._k8s_results_cache[cache_key] = response
+                self._k8s_results_cache[cache_key] = response
 
-        response = self._k8s_results_cache[cache_key]
+            response = self._k8s_results_cache[cache_key]
 
-        result = str(jmespath.search(jmethpath_expression, response))
+            result = str(jmespath.search(jmethpath_expression, response))
+
+        except kubernetes.client.exceptions.ApiException as e:
+            if e.status==404:
+                return None
+            else:
+                raise e
 
         return plugin_registry.contract.IContent(content=result.encode())
