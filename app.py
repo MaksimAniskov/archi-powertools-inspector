@@ -4,8 +4,6 @@ import plugin_registry
 import argparse
 import logging
 import git
-import xml.etree.ElementTree as ET
-import plugin_registry
 import urllib.parse
 import pathlib
 import os
