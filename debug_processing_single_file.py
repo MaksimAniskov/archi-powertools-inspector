@@ -22,7 +22,7 @@ def __init_cli() -> argparse:
         "--log",
         default="INFO",
         help="""
-        Specify log level which should use. Default will always be DEBUG, choose between the following options
+        Specify log level which should use. Default will always be INFO, choose between the following options
         CRITICAL, ERROR, WARNING, INFO, DEBUG
         """,
     )
