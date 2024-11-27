@@ -1,4 +1,4 @@
-import app
+import lib
 import plugin_registry
 import logging
 import pytest
@@ -17,7 +17,6 @@ def plugins():
         ).loadPlugins()
         return [P(logger) for P in plugins]
 
-@mock.patch("app.logger", logging.getLogger("test"))
 @mock.patch("requests.get")
 class TestPlugins:
     def test_https_value_ref(self, get, plugins):
@@ -34,4 +33,4 @@ class TestPlugins:
         with mock.patch(
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
-            app.processFile("somefile.xml")
+            lib.processFile(logging.getLogger("test"), plugins, "somefile.xml")

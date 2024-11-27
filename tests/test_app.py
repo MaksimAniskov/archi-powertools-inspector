@@ -1,4 +1,5 @@
 import app
+import lib
 import plugin_registry
 import xml.etree.ElementTree as ET
 import git
@@ -6,7 +7,7 @@ import logging
 import pytest
 import unittest
 from unittest import mock
-import lib
+import tests.tests_lib as tests_lib
 
 
 class TestWriteXmlTreeInArchiFormat:
@@ -16,9 +17,9 @@ class TestWriteXmlTreeInArchiFormat:
             <data/>
         """
         mock_file = mock.Mock()
-        app.writeXmlTreeInArchiFormat(ET.fromstring(test_xml_str.strip()), mock_file)
+        lib.writeXmlTreeInArchiFormat(ET.fromstring(test_xml_str.strip()), mock_file)
         mock_file.write.assert_called()
-        assert lib.reconstructOutput(mock_file) == "<data/>\n"
+        assert tests_lib.reconstructOutput(mock_file) == "<data/>\n"
 
     def test_archimate_flowrelationship(self):
         test_xml_str = """
@@ -32,10 +33,10 @@ class TestWriteXmlTreeInArchiFormat:
             </archimate:FlowRelationship>
         """
         mock_file = mock.Mock()
-        app.writeXmlTreeInArchiFormat(ET.fromstring(test_xml_str.strip()), mock_file)
+        lib.writeXmlTreeInArchiFormat(ET.fromstring(test_xml_str.strip()), mock_file)
         mock_file.write.assert_called()
         assert (
-            lib.reconstructOutput(mock_file)
+            tests_lib.reconstructOutput(mock_file)
             == """<archimate:FlowRelationship
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xmlns:archimate="http://www.archimatetool.com/archimate"
@@ -52,9 +53,9 @@ class TestWriteXmlTreeInArchiFormat:
         tree.find(f"./properties").set("value", 'here is " quote')
 
         mock_file = mock.Mock()
-        app.writeXmlTreeInArchiFormat(tree, mock_file)
+        lib.writeXmlTreeInArchiFormat(tree, mock_file)
         assert (
-            lib.reconstructOutput(mock_file)
+            tests_lib.reconstructOutput(mock_file)
             == """<root>
   <properties
       value="here is &quot; quote"/>
@@ -68,7 +69,7 @@ class TestUpsertProperty:
         tree = ET.fromstring(
             '<root><properties key="somekey" value="somevalue"/></root>'
         )
-        app.upsertProperty(tree, "somekey", "newvalue")
+        lib.upsertProperty(tree, "somekey", "newvalue")
         assert (
             ET.tostring(tree)
             == b'<root><properties key="somekey" value="newvalue" /></root>'
@@ -78,7 +79,7 @@ class TestUpsertProperty:
         tree = ET.fromstring(
             '<root><properties key="otherkey" value="somevalue"/></root>'
         )
-        app.upsertProperty(tree, "somekey", "newvalue")
+        lib.upsertProperty(tree, "somekey", "newvalue")
         assert (
             ET.tostring(tree)
             == b'<root><properties key="otherkey" value="somevalue" /><properties key="somekey" value="newvalue" /></root>'
@@ -92,9 +93,13 @@ def test_redact_url():
     )
 
 
-@mock.patch("app.logger", logging.getLogger("test"))
+@pytest.fixture
+def logger():
+    return logging.getLogger("test")
+
+
 class TestProcessFileWithVersioning:
-    def test_deps_LinesMoved(self):
+    def test_deps_LinesMoved(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -110,16 +115,15 @@ class TestProcessFileWithVersioning:
                     current_lines_content="fakecontent",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-deps"
@@ -128,7 +132,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_deps_ContentChanged(self):
+    def test_deps_ContentChanged(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L2-4"/>
@@ -143,16 +147,15 @@ class TestProcessFileWithVersioning:
                 current_lines_content="line2 changed\nline3\nline4",
                 was_lines_content="line2\nline3\nline4",
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L2-4"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L2-4"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-deps"
@@ -164,7 +167,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_deps_no_diff_detected(self):
+    def test_deps_no_diff_detected(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -175,16 +178,15 @@ class TestProcessFileWithVersioning:
         ) as mock_file:
             mock_plugin = mock.MagicMock()
             mock_plugin.getUrlResolver.return_value.diff.return_value = False
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert not changes_detected
-                mock_file.return_value.write.assert_not_called()
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert not changes_detected
+            mock_file.return_value.write.assert_not_called()
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
 
-    def test_deps_no_ref(self):
+    def test_deps_no_ref(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -200,16 +202,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-deps"
@@ -221,7 +222,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_deps_plugin_mix(self):
+    def test_deps_plugin_mix(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps"
@@ -256,23 +257,24 @@ class TestProcessFileWithVersioning:
                 )
             )
 
-            with mock.patch("app.plugins", [mock_plugin1, mock_plugin2]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                url_resolver1.resolveToContent.assert_has_calls(
-                    [
-                        unittest.mock.call("proto1://some.host/file1.ext#L1"),
-                        unittest.mock.call("proto1://some.host/file3.ext#L2"),
-                    ],
-                    any_order=True,
-                )
-                url_resolver2.diff.assert_called_with(
-                    "proto2://some.host/file2.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(
+                logger, [mock_plugin1, mock_plugin2], "somefile.xml"
+            )
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            url_resolver1.resolveToContent.assert_has_calls(
+                [
+                    unittest.mock.call("proto1://some.host/file1.ext#L1"),
+                    unittest.mock.call("proto1://some.host/file3.ext#L2"),
+                ],
+                any_order=True,
+            )
+            url_resolver2.diff.assert_called_with(
+                "proto2://some.host/file2.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-deps"
@@ -287,7 +289,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_deps_multiple_only_1_changes(self):
+    def test_deps_multiple_only_1_changes(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps"
@@ -308,11 +310,10 @@ class TestProcessFileWithVersioning:
                 else False
             )
 
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-deps"
@@ -321,7 +322,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_LinesMoved(self):
+    def test_value_ref_LinesMoved(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -339,16 +340,15 @@ class TestProcessFileWithVersioning:
                     current_lines_content="knownvalue",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -363,7 +363,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_LinesMoved_no_content(self):
+    def test_value_ref_LinesMoved_no_content(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L3"/>
@@ -387,21 +387,20 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L3"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L3"
+            )
 
             mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
                 "someproto://some.host/some/path/file.ext#L4"
             )
 
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -422,7 +421,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_LinesMoved_no_known_value(self):
+    def test_value_ref_LinesMoved_no_known_value(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -445,16 +444,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -472,7 +470,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_LinesMoved_no_known_value_no_content(self, mock_plugin):
+    def test_value_ref_LinesMoved_no_known_value_no_content(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -495,16 +493,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -522,7 +519,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_LinesMoved_regexp_does_not_match(self):
+    def test_value_ref_LinesMoved_regexp_does_not_match(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -540,16 +537,15 @@ class TestProcessFileWithVersioning:
                     current_lines_content="fakecontent",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -570,7 +566,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_ContentChanged(self):
+    def test_value_ref_ContentChanged(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -589,16 +585,15 @@ class TestProcessFileWithVersioning:
                     current_lines_content="newvalue",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -619,7 +614,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_ContentChanged_no_known_value(self):
+    def test_value_ref_ContentChanged_no_known_value(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -637,17 +632,16 @@ class TestProcessFileWithVersioning:
                     current_lines_content="newvalue",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_not_called()
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_not_called()
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -665,7 +659,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_ContentChanged_partial(self):
+    def test_value_ref_ContentChanged_partial(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -684,16 +678,15 @@ class TestProcessFileWithVersioning:
                     current_lines_content="xyz123newvalue456abc",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -714,7 +707,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_ContentChanged_lines_deleted(self):
+    def test_value_ref_ContentChanged_lines_deleted(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -731,16 +724,15 @@ class TestProcessFileWithVersioning:
                 was_lines_content="knownvalue",
                 current_lines_content="",
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -761,7 +753,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_no_ref(self):
+    def test_value_ref_no_ref(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -779,16 +771,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -809,7 +800,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_no_ref_no_known_value(self):
+    def test_value_ref_no_ref_no_known_value(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -826,16 +817,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -853,7 +843,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_no_diff_detected(self):
+    def test_value_ref_no_diff_detected(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -866,16 +856,15 @@ class TestProcessFileWithVersioning:
         ) as mock_file:
             mock_plugin = mock.MagicMock()
             mock_plugin.getUrlResolver.return_value.diff.return_value = False
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert not changes_detected
-                mock_file.assert_called_with("somefile.xml", "rb")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert not changes_detected
+            mock_file.assert_called_with("somefile.xml", "rb")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
 
-    def test_value_ref_no_diff_detected_no_known_value(self):
+    def test_value_ref_no_diff_detected_no_known_value(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -893,16 +882,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -920,7 +908,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_no_diff_detected_no_known_value_partial(self):
+    def test_value_ref_no_diff_detected_no_known_value_partial(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -938,16 +926,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -965,7 +952,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_no_diff_detected_no_known_value_no_content(self):
+    def test_value_ref_no_diff_detected_no_known_value_no_content(self, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -983,16 +970,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -1010,7 +996,9 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_value_ref_no_diff_detected_no_known_value_regexp_does_not_match(self):
+    def test_value_ref_no_diff_detected_no_known_value_regexp_does_not_match(
+        self, logger
+    ):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext@a1b2c3d4#L1"/>
@@ -1028,16 +1016,15 @@ class TestProcessFileWithVersioning:
                     last_commit_id="a996319a",
                 )
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
-                    "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.diff.assert_called_with(
+                "someproto://some.host/some/path/file.ext@a1b2c3d4#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -1055,7 +1042,7 @@ class TestProcessFileWithVersioning:
 """
             )
 
-    def test_deps_non_reviewed(self):
+    def test_deps_non_reviewed(self, logger):
         # If value-requires-reviewing present, processFile is expected to exit without processing
         file_content = """
             <root>
@@ -1065,12 +1052,11 @@ class TestProcessFileWithVersioning:
         """
         with mock.patch("builtins.open", mock.mock_open(read_data=file_content)):
             mock_plugin = mock.MagicMock()
-            with mock.patch("app.plugins", [mock_plugin]) as mock_file:
-                changes_detected = app.processFile("somefile.xml")
-                assert not changes_detected
-                mock_plugin.getUrlResolver.assert_not_called()
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert not changes_detected
+            mock_plugin.getUrlResolver.assert_not_called()
 
-    def test_value_ref_non_reviewed(self):
+    def test_value_ref_non_reviewed(self, logger):
         # If value-requires-reviewing present, processFile is expected to exit without processing
         file_content = """
             <root>
@@ -1082,10 +1068,9 @@ class TestProcessFileWithVersioning:
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
             mock_plugin = mock.MagicMock()
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert not changes_detected
-                mock_plugin.getUrlResolver.assert_not_called()
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert not changes_detected
+            mock_plugin.getUrlResolver.assert_not_called()
 
 
 @pytest.fixture
@@ -1095,19 +1080,18 @@ def mock_plugin():
     return mock_plugin
 
 
-@mock.patch("app.logger", logging.getLogger("test"))
 class TestProcessFile:
-    def test_minimalistic(self):
+    def test_minimalistic(self, logger):
         file_content = "<root/>"
         with mock.patch(
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
-            changes_detected = app.processFile("somefile.xml")
+            changes_detected = lib.processFile(logger, [], "somefile.xml")
             assert not changes_detected
             mock_file.assert_called_with("somefile.xml", "rb")
             mock_file.return_value.close.assert_called_with()
 
-    def test_deps(self, mock_plugin):
+    def test_deps(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -1119,16 +1103,15 @@ class TestProcessFile:
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                 plugin_registry.contract.IContent(b"fakecontent")
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
         assert (
-            lib.reconstructOutput(mock_file.return_value)
+            tests_lib.reconstructOutput(mock_file.return_value)
             == """<root>
   <properties
       key="pwrt:inspector:value-deps"
@@ -1143,7 +1126,7 @@ class TestProcessFile:
 """
         )
 
-    def test_out_file(self, mock_plugin):
+    def test_out_file(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -1155,16 +1138,17 @@ class TestProcessFile:
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                 plugin_registry.contract.IContent(b"fakecontent")
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml", "outfile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("outfile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(
+                logger, [mock_plugin], "somefile.xml", "outfile.xml"
+            )
+            assert changes_detected
+            mock_file.assert_called_with("outfile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
         assert (
-            lib.reconstructOutput(mock_file.return_value)
+            tests_lib.reconstructOutput(mock_file.return_value)
             == """<root>
   <properties
       key="pwrt:inspector:value-deps"
@@ -1179,7 +1163,7 @@ class TestProcessFile:
 """
         )
 
-    def test_deps_no_content(self, mock_plugin):
+    def test_deps_no_content(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -1194,16 +1178,17 @@ class TestProcessFile:
                 mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                     None
                 )
-                with mock.patch("app.plugins", [mock_plugin]):
-                    changes_detected = app.processFile("somefile.xml")
-                    assert not changes_detected
-                    mock_file.assert_called_with("somefile.xml", "rb")
-                    mock_file.return_value.close.assert_called_with()
-                    mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                        "someproto://some.host/some/path/file.ext#L1"
-                    )
+                changes_detected = lib.processFile(
+                    logger, [mock_plugin], "somefile.xml"
+                )
+                assert not changes_detected
+                mock_file.assert_called_with("somefile.xml", "rb")
+                mock_file.return_value.close.assert_called_with()
+                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                    "someproto://some.host/some/path/file.ext#L1"
+                )
 
-    def test_deps_no_plugin(self, mock_plugin):
+    def test_deps_no_plugin(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-deps" value="wrongproto://some.host/some/path/file.ext#L1"/>
@@ -1213,11 +1198,10 @@ class TestProcessFile:
             "builtins.open", mock.mock_open(read_data=file_content)
         ) as mock_file:
             mock_plugin.getUrlResolver.return_value = None
-            with mock.patch("app.plugins", [mock_plugin]):
-                with pytest.raises(AttributeError):
-                    app.processFile("somefile.xml")
+            with pytest.raises(AttributeError):
+                lib.processFile(logger, [mock_plugin], "somefile.xml")
 
-    def test_value_ref(self, mock_plugin):
+    def test_value_ref(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -1230,16 +1214,15 @@ class TestProcessFile:
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                 plugin_registry.contract.IContent(b"fakecontent")
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value-new"
@@ -1257,7 +1240,7 @@ class TestProcessFile:
 """
             )
 
-    def test_value_ref_no_content(self, mock_plugin):
+    def test_value_ref_no_content(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -1270,11 +1253,10 @@ class TestProcessFile:
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                 plugin_registry.contract.IContent(None)
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert not changes_detected
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert not changes_detected
 
-    def test_value_ref_regexp_does_not_match(self, mock_plugin):
+    def test_value_ref_regexp_does_not_match(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value" value="knownvalue"/>
@@ -1288,16 +1270,15 @@ class TestProcessFile:
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                 plugin_registry.contract.IContent(b"thisshouldnotmatch")
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -1318,7 +1299,7 @@ class TestProcessFile:
 """
             )
 
-    def test_value_ref_no_regexp(self, mock_plugin):
+    def test_value_ref_no_regexp(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -1330,11 +1311,10 @@ class TestProcessFile:
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                 b"fakecontent"
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                with pytest.raises(AttributeError):
-                    app.processFile("somefile.xml")
+            with pytest.raises(AttributeError):
+                lib.processFile(logger, [mock_plugin], "somefile.xml")
 
-    def test_value_ref_known_value(self, mock_plugin):
+    def test_value_ref_known_value(self, mock_plugin, logger):
         file_content = """
             <root>
                 <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
@@ -1348,16 +1328,15 @@ class TestProcessFile:
             mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
                 plugin_registry.contract.IContent(b"fakecontent")
             )
-            with mock.patch("app.plugins", [mock_plugin]):
-                changes_detected = app.processFile("somefile.xml")
-                assert changes_detected
-                mock_file.assert_called_with("somefile.xml", "w")
-                mock_file.return_value.close.assert_called_with()
-                mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
-                    "someproto://some.host/some/path/file.ext#L1"
-                )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            mock_plugin.getUrlResolver.return_value.resolveToContent.assert_called_with(
+                "someproto://some.host/some/path/file.ext#L1"
+            )
             assert (
-                lib.reconstructOutput(mock_file.return_value)
+                tests_lib.reconstructOutput(mock_file.return_value)
                 == """<root>
   <properties
       key="pwrt:inspector:value"
@@ -1427,7 +1406,7 @@ class TestMain(unittest.TestCase):
         git_remote_remote.assert_called()
         git_remote_remote.return_value.pull.assert_called_with()
 
-    @mock.patch("app.processFile")
+    @mock.patch("lib.processFile")
     def test_main_some_files_found(
         self, processFile, os_path_exists, pathlib_path, git_repo
     ):
@@ -1437,9 +1416,11 @@ class TestMain(unittest.TestCase):
 
         app.main()
 
-        processFile.assert_called_with("fakefile.txt")
+        processFile.assert_called_with(
+            unittest.mock.ANY, unittest.mock.ANY, "fakefile.txt"
+        )
 
-    @mock.patch("app.processFile")
+    @mock.patch("lib.processFile")
     def test_main_change_detected(
         self, processFile, os_path_exists, pathlib_path, git_repo
     ):
@@ -1452,7 +1433,9 @@ class TestMain(unittest.TestCase):
 
         app.main()
 
-        processFile.assert_called_with("fakefile.txt")
+        processFile.assert_called_with(
+            unittest.mock.ANY, unittest.mock.ANY, "fakefile.txt"
+        )
         git_repo.clone_from.return_value.index.diff.assert_called_once_with(None)
         git_repo.clone_from.return_value.index.add.assert_called_once()
         assert list(git_repo.clone_from.return_value.index.add.call_args.args[0]) == [
