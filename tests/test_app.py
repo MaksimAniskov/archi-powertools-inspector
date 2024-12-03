@@ -1256,6 +1256,46 @@ class TestProcessFile:
             changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
             assert not changes_detected
 
+    def test_value_ref_no_content_does_not_match(self, mock_plugin, logger):
+        file_content = """
+            <root>
+                <properties key="pwrt:inspector:value" value="knownvalue"/>
+                <properties key="pwrt:inspector:value-ref" value="someproto://some.host/some/path/file.ext#L1"/>
+                <properties key="pwrt:inspector:value-regexp" value="(.*)"/>
+            </root>
+        """
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=file_content)
+        ) as mock_file:
+            mock_plugin.getUrlResolver.return_value.resolveToContent.return_value = (
+                plugin_registry.contract.IContent(None)
+            )
+            changes_detected = lib.processFile(logger, [mock_plugin], "somefile.xml")
+            assert changes_detected
+            mock_file.assert_called_with("somefile.xml", "w")
+            mock_file.return_value.close.assert_called_with()
+            assert (
+                tests_lib.reconstructOutput(mock_file.return_value)
+                == """<root>
+  <properties
+      key="pwrt:inspector:value"
+      value="knownvalue"/>
+  <properties
+      key="pwrt:inspector:value-new"
+      value="~none~"/>
+  <properties
+      key="pwrt:inspector:value-ref"
+      value="someproto://some.host/some/path/file.ext#L1"/>
+  <properties
+      key="pwrt:inspector:value-regexp"
+      value="(.*)"/>
+  <properties
+      key="pwrt:inspector:value-requires-reviewing"
+      value="true"/>
+</root>
+"""
+            )
+
     def test_value_ref_regexp_does_not_match(self, mock_plugin, logger):
         file_content = """
             <root>

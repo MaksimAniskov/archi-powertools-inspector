@@ -251,7 +251,7 @@ def processFile(
         else:
             value_new_str = "~none~"
             content_obj = url_resolver.resolveToContent(value_ref_url)
-            value_str: str = content_obj.content
+            value_str: str = content_obj.content if content_obj else None
             if value_str:
                 logger.debug(
                     f'{" "*log_indentation}    Ref resolved to content: {value_str}'
