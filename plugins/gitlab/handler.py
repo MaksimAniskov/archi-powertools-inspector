@@ -97,7 +97,11 @@ class UrlResolver(plugin_registry.IUrlResolver):
                 project = self._getAndCacheProject(gl=gl, project_id=project_id)
 
                 if environment_name:
-                    environment = self._getAndCacheProjectEnvironment(project=project, project_id=project_id, environment_name=environment_name)
+                    environment = self._getAndCacheProjectEnvironment(
+                        project=project,
+                        project_id=project_id,
+                        environment_name=environment_name,
+                    )
                     ref_to = environment.last_deployment["sha"]
 
                 self._repository_compare_cache[url_parsed.path] = (
@@ -322,7 +326,11 @@ class UrlResolver(plugin_registry.IUrlResolver):
         try:
 
             if environment_name:
-                environment = self._getAndCacheProjectEnvironment(project=project, project_id=project_id, environment_name=environment_name)
+                environment = self._getAndCacheProjectEnvironment(
+                    project=project,
+                    project_id=project_id,
+                    environment_name=environment_name,
+                )
                 ref = environment.last_deployment["sha"]
 
             gitlab_file = project.files.get(file_path=file_path, ref=ref)

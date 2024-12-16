@@ -1657,7 +1657,9 @@ class TestGitLabPlugin:
         )
         assert diff == None
 
-    def test_diff_caching(self, gl, plugins, url_resolver, repository_compare_mock_result):
+    def test_diff_caching(
+        self, gl, plugins, url_resolver, repository_compare_mock_result
+    ):
         url_resolver = plugin_registry.getUrlResolver(plugins=plugins, scheme="gitlab")
         url_resolver._gls = (
             {}
@@ -1931,7 +1933,8 @@ class TestGitLabPlugin:
             "456"
         )
         gl.return_value.projects.get.return_value.files.get.assert_called_once_with(
-            file_path="some/path/file1.txt", ref="0123456789abcdef0123456789abcdef01234567"
+            file_path="some/path/file1.txt",
+            ref="0123456789abcdef0123456789abcdef01234567",
         )
         assert content_obj.content == b"line2"
         assert content_obj.last_commit_id == "a1b2c3d4"
