@@ -46,6 +46,20 @@ class UrlResolver(plugin_registry.IUrlResolver):
             self._gls[url_parsed.hostname] = gl
         return gl
 
+    def _getAndCacheProjectEnvironment(
+        self, project, project_id: str, environment_name: str
+    ):
+        environment_cache_key = f"{project_id}:{environment_name}"
+        if environment_cache_key not in self._environments_cache:
+            environments = project.environments.list()
+            environment_id = [e for e in environments if e.name == environment_name][
+                0
+            ].id
+            environment = project.environments.get(environment_id)
+            self._environments_cache[environment_cache_key] = environment
+
+        return self._environments_cache[environment_cache_key]
+
     def diff(self, url: str) -> plugin_registry.contract.IDiff | bool | None:
         gl = self._getGL(url)
 
@@ -77,16 +91,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
                 project = gl.projects.get(project_id)
 
                 if environment_name:
-                    environment_cache_key = f"{project_id}:{environment_name}"
-                    if environment_cache_key not in self._environments_cache:
-                        environments = project.environments.list()
-                        environment_id = [
-                            e for e in environments if e.name == environment_name
-                        ][0].id
-                        environment = project.environments.get(environment_id)
-                        self._environments_cache[environment_cache_key] = environment
-
-                    environment = self._environments_cache[environment_cache_key]
+                    environment = self._getAndCacheProjectEnvironment(project=project, project_id=project_id, environment_name=environment_name)
                     ref_to = environment.last_deployment["sha"]
 
                 self._repository_compare_cache[url_parsed.path] = (
@@ -292,11 +297,29 @@ class UrlResolver(plugin_registry.IUrlResolver):
             r"/(?P<project_id>.+)/-/blob/(?P<ref>[^/]+)/(?P<file_path>.+)",
             url_parsed.path,
         )
+        project_id = match.group("project_id")
+        file_path = match.group("file_path")
+        ref = match.group("ref")
         project = gl.projects.get(match.group("project_id"))
+
+        match = re.match(
+            # Example:
+            # ${environment('production').last_deployment.sha}
+            # ${environment("production").last_deployment.sha}
+            r"\${environment\([\"'](?P<environment_name>[^\"']+)[\"']\).last_deployment.sha}",
+            ref,
+        )
+        environment_name = None
+        if match:
+            environment_name = match.group("environment_name")
+
         try:
-            gitlab_file = project.files.get(
-                file_path=match.group("file_path"), ref=match.group("ref")
-            )
+
+            if environment_name:
+                environment = self._getAndCacheProjectEnvironment(project=project, project_id=project_id, environment_name=environment_name)
+                ref = environment.last_deployment["sha"]
+
+            gitlab_file = project.files.get(file_path=file_path, ref=ref)
             all_lines = gitlab_file.decode()
 
             m = re.match(r"L(?P<from>\d+)(-(?P<to>\d+))?", url_parsed.fragment)

@@ -1884,7 +1884,104 @@ class TestGitLabPlugin:
             "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/other/path/file2.txt@01234567#L1"
         )
 
+        gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
+        # TODO:
+        # gl.return_value.projects.get.assert_called_once_with("user/project")
         gl.return_value.projects.get.return_value.environments.list.assert_called_once()
         gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
             "456"
         )
+
+    def test_resolveToContent_environment_last_deployment(
+        self, gl, url_resolver, repository_compare_mock_result
+    ):
+        env0 = mock.MagicMock(id="123")
+        env0.name = "some_name_1"
+        env1 = mock.MagicMock(id="456")
+        env1.name = "production"
+        env2 = mock.MagicMock(id="789")
+        env2.name = "some_name_2"
+        gl.return_value.projects.get.return_value.environments.list.return_value = [
+            env0,
+            env1,
+            env2,
+        ]
+
+        d = {}
+        d["sha"] = "0123456789abcdef0123456789abcdef01234567"
+        gl.return_value.projects.get.return_value.environments.get.return_value = (
+            mock.MagicMock(last_deployment=d)
+        )
+
+        gl.return_value.projects.get.return_value.files.get.return_value.decode.return_value = (
+            b"fakefilecontent\nline2\nline3"
+        )
+        gl.return_value.projects.get.return_value.files.get.return_value.last_commit_id = (
+            "a1b2c3d4e5f6"
+        )
+
+        content_obj = url_resolver.resolveToContent(
+            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt#L2"
+        )
+
+        gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
+        gl.return_value.projects.get.assert_called_once_with("user/project")
+        gl.return_value.projects.get.return_value.environments.list.assert_called_once()
+        gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
+            "456"
+        )
+        gl.return_value.projects.get.return_value.files.get.assert_called_once_with(
+            file_path="some/path/file1.txt", ref="0123456789abcdef0123456789abcdef01234567"
+        )
+        assert content_obj.content == b"line2"
+        assert content_obj.last_commit_id == "a1b2c3d4"
+
+    def test_resolveToContent_environment_last_deployment_caching(
+        self, gl, url_resolver, repository_compare_mock_result
+    ):
+        env0 = mock.MagicMock(id="123")
+        env0.name = "some_name_1"
+        env1 = mock.MagicMock(id="456")
+        env1.name = "production"
+        env2 = mock.MagicMock(id="789")
+        env2.name = "some_name_2"
+        gl.return_value.projects.get.return_value.environments.list.return_value = [
+            env0,
+            env1,
+            env2,
+        ]
+
+        d = {}
+        d["sha"] = "0123456789abcdef0123456789abcdef01234567"
+        gl.return_value.projects.get.return_value.environments.get.return_value = (
+            mock.MagicMock(last_deployment=d)
+        )
+
+        gl.return_value.projects.get.return_value.files.get.return_value.decode.return_value = (
+            b"fakefilecontent\nline2\nline3"
+        )
+        gl.return_value.projects.get.return_value.files.get.return_value.last_commit_id = (
+            "a1b2c3d4e5f6"
+        )
+
+        url_resolver.resolveToContent(
+            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt#L2"
+        )
+
+        content_obj = url_resolver.resolveToContent(
+            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt#L2"
+        )
+
+        gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
+        # TODO:
+        # gl.return_value.projects.get.assert_called_once_with("user/project")
+        gl.return_value.projects.get.return_value.environments.list.assert_called_once()
+        gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
+            "456"
+        )
+        # TODO:
+        # gl.return_value.projects.get.return_value.files.get.assert_called_once_with(
+        #     file_path="some/path/file1.txt", ref="0123456789abcdef0123456789abcdef01234567"
+        # )
+        assert content_obj.content == b"line2"
+        assert content_obj.last_commit_id == "a1b2c3d4"
