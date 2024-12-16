@@ -17,6 +17,7 @@ def url_resolver(plugins):
     res._repository_compare_cache = (
         {}
     )  # Clear the resolver's cache of repository_compare return objects.
+    res._projects_cache = {}
     res._environments_cache = {}
     return res
 
@@ -1656,7 +1657,7 @@ class TestGitLabPlugin:
         )
         assert diff == None
 
-    def test_diff_caching(self, gl, plugins, repository_compare_mock_result):
+    def test_diff_caching(self, gl, plugins, url_resolver, repository_compare_mock_result):
         url_resolver = plugin_registry.getUrlResolver(plugins=plugins, scheme="gitlab")
         url_resolver._gls = (
             {}
@@ -1693,7 +1694,7 @@ class TestGitLabPlugin:
             == "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@9f8e7d6c#L7<-lines deleted"
         )
 
-    def test_diff_caching_Exception(self, gl, plugins):
+    def test_diff_caching_Exception(self, gl, plugins, url_resolver):
         url_resolver = plugin_registry.getUrlResolver(plugins=plugins, scheme="gitlab")
         url_resolver._gls = (
             {}
@@ -1885,8 +1886,7 @@ class TestGitLabPlugin:
         )
 
         gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
-        # TODO:
-        # gl.return_value.projects.get.assert_called_once_with("user/project")
+        gl.return_value.projects.get.assert_called_once_with("user/project")
         gl.return_value.projects.get.return_value.environments.list.assert_called_once()
         gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
             "456"
@@ -1973,8 +1973,7 @@ class TestGitLabPlugin:
         )
 
         gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
-        # TODO:
-        # gl.return_value.projects.get.assert_called_once_with("user/project")
+        gl.return_value.projects.get.assert_called_once_with("user/project")
         gl.return_value.projects.get.return_value.environments.list.assert_called_once()
         gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
             "456"

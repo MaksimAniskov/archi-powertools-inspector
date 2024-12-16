@@ -30,6 +30,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
         self.isVersioningSupported = True
         self._gls = {}
         self._repository_compare_cache = {}
+        self._projects_cache = {}
         self._environments_cache = {}
 
     def _getGL(self, url: str):
@@ -60,6 +61,11 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
         return self._environments_cache[environment_cache_key]
 
+    def _getAndCacheProject(self, gl, project_id: str):
+        if project_id not in self._projects_cache:
+            self._projects_cache[project_id] = gl.projects.get(project_id)
+        return self._projects_cache[project_id]
+
     def diff(self, url: str) -> plugin_registry.contract.IDiff | bool | None:
         gl = self._getGL(url)
 
@@ -88,7 +94,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
         try:
             if url_parsed.path not in self._repository_compare_cache:
-                project = gl.projects.get(project_id)
+                project = self._getAndCacheProject(gl=gl, project_id=project_id)
 
                 if environment_name:
                     environment = self._getAndCacheProjectEnvironment(project=project, project_id=project_id, environment_name=environment_name)
@@ -300,7 +306,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
         project_id = match.group("project_id")
         file_path = match.group("file_path")
         ref = match.group("ref")
-        project = gl.projects.get(match.group("project_id"))
+        project = self._getAndCacheProject(gl=gl, project_id=project_id)
 
         match = re.match(
             # Example:
