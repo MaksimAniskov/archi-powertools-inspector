@@ -17,6 +17,7 @@ def url_resolver(plugins):
     res._repository_compare_cache = (
         {}
     )  # Clear the resolver's cache of repository_compare return objects.
+    res._repository_content_cache = {}
     res._projects_cache = {}
     res._environments_cache = {}
     return res
@@ -1981,9 +1982,9 @@ class TestGitLabPlugin:
         gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
             "456"
         )
-        # TODO:
-        # gl.return_value.projects.get.return_value.files.get.assert_called_once_with(
-        #     file_path="some/path/file1.txt", ref="0123456789abcdef0123456789abcdef01234567"
-        # )
+        gl.return_value.projects.get.return_value.files.get.assert_called_once_with(
+            file_path="some/path/file1.txt",
+            ref="0123456789abcdef0123456789abcdef01234567",
+        )
         assert content_obj.content == b"line2"
         assert content_obj.last_commit_id == "a1b2c3d4"

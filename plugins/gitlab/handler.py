@@ -30,6 +30,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
         self.isVersioningSupported = True
         self._gls = {}
         self._repository_compare_cache = {}
+        self._repository_content_cache = {}
         self._projects_cache = {}
         self._environments_cache = {}
 
@@ -324,16 +325,20 @@ class UrlResolver(plugin_registry.IUrlResolver):
             environment_name = match.group("environment_name")
 
         try:
+            if url_parsed.path not in self._repository_content_cache:
+                if environment_name:
+                    environment = self._getAndCacheProjectEnvironment(
+                        project=project,
+                        project_id=project_id,
+                        environment_name=environment_name,
+                    )
+                    ref = environment.last_deployment["sha"]
 
-            if environment_name:
-                environment = self._getAndCacheProjectEnvironment(
-                    project=project,
-                    project_id=project_id,
-                    environment_name=environment_name,
+                self._repository_content_cache[url_parsed.path] = project.files.get(
+                    file_path=file_path, ref=ref
                 )
-                ref = environment.last_deployment["sha"]
 
-            gitlab_file = project.files.get(file_path=file_path, ref=ref)
+            gitlab_file = self._repository_content_cache[url_parsed.path]
             all_lines = gitlab_file.decode()
 
             m = re.match(r"L(?P<from>\d+)(-(?P<to>\d+))?", url_parsed.fragment)
