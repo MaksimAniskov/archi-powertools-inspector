@@ -1,1 +1,1 @@
-python-gitlab == 4.*
+python-gitlab == 5.*
