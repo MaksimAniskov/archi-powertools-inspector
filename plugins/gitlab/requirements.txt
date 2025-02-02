@@ -1,1 +1,2 @@
 python-gitlab == 5.*
+GitPython==3.*

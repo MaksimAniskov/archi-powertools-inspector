@@ -2,6 +2,7 @@ import logging
 import plugin_registry
 import os
 import gitlab
+import git
 import urllib.parse
 import re
 
@@ -33,6 +34,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
         self._repository_content_cache = {}
         self._projects_cache = {}
         self._environments_cache = {}
+        self._git_fetched_for = {}
 
     def _getGL(self, url: str):
         url_parsed = urllib.parse.urlparse(url)
@@ -66,6 +68,48 @@ class UrlResolver(plugin_registry.IUrlResolver):
         if project_id not in self._projects_cache:
             self._projects_cache[project_id] = gl.projects.get(project_id)
         return self._projects_cache[project_id]
+
+    def _urlToCachedRepoPath(self, url_parsed: urllib.parse.ParseResult) -> str:
+        project_path_with_leading_slash = url_parsed.path.split("/-/blob/")[0]
+        return (
+            f"{os.getenv('GITLAB_REPO_CACHE_DIR')}/{url_parsed.hostname}{project_path_with_leading_slash}",
+            url_parsed.hostname,
+            project_path_with_leading_slash,
+        )
+
+    def _calcDiff(
+        self, url_parsed: urllib.parse.ParseResult, ref_from: str, ref_to: str
+    ) -> tuple[git.diff.DiffIndex, str]:
+
+        cached_repo_path, hostname, project_path_with_leading_slash = (
+            self._urlToCachedRepoPath(url_parsed)
+        )
+
+        repo_and_ref_to_key = f"{hostname}{project_path_with_leading_slash}:{ref_to}"
+        try:
+            repo = git.Repo(cached_repo_path)
+            if not self._git_fetched_for.get(repo_and_ref_to_key):
+                try:
+                    self._logger.info(f"Doing git fetch origin refs/heads/{ref_to} in {hostname}{project_path_with_leading_slash}")
+                    repo.git.fetch("origin", f"refs/heads/{ref_to}")
+                except git.exc.GitCommandError:
+                    self._logger.info(f"git fetch failed. Doing git fetch origin refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}")
+                    repo.git.fetch("origin", f"refs/tags/{ref_to}")
+        except git.exc.NoSuchPathError:
+            self._logger.info(f"Doing git clone https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git --branch {ref_to}")
+            repo = git.Repo.clone_from(
+                url=f"https://oauth2:{os.getenv('GITLAB_TOKEN')}@{hostname}{project_path_with_leading_slash}.git",
+                to_path=cached_repo_path,
+                branch=ref_to
+            )
+        self._git_fetched_for[repo_and_ref_to_key] = True
+
+        commit_to = repo.commit(ref_to)
+        ref_to_hexsha_8chars = commit_to.hexsha[:8]
+        diff = repo.commit(ref_from).diff(
+            commit_to, create_patch=True, minimal=True, find_renames="40%"
+        )
+        return diff, ref_to_hexsha_8chars
 
     def diff(self, url: str) -> plugin_registry.contract.IDiff | bool | None:
         gl = self._getGL(url)
@@ -105,23 +149,26 @@ class UrlResolver(plugin_registry.IUrlResolver):
                     )
                     ref_to = environment.last_deployment["sha"]
 
-                self._repository_compare_cache[url_parsed.path] = (
-                    project.repository_compare(from_=ref_from, to=ref_to)
+                diff, ref_to_hexsha_8chars = self._calcDiff(
+                    url_parsed, ref_from, ref_to
                 )
+                self._repository_compare_cache[url_parsed.path] = (diff, ref_to_hexsha_8chars)
             elif self._repository_compare_cache[url_parsed.path] is None:
                 return None
-            compare_result = self._repository_compare_cache[url_parsed.path]
-        except gitlab.GitlabGetError as e:
-            self._logger.warning(f"{e.error_message}: {url}")
+            compare_result, ref_to_hexsha_8chars = self._repository_compare_cache[url_parsed.path]
+        except Exception as e:
+            self._logger.warning(f"{type(e)}: {e}")
             self._repository_compare_cache[url_parsed.path] = None
             return None
 
         diff_entry_arr = [
-            item for item in compare_result["diffs"] if item["old_path"] == file_path
+            item for item in compare_result if item.a_path == file_path
         ]  # Expect 0 or 1 element
 
         if len(diff_entry_arr) == 0:
             return False  # No changes in this file
+
+        diff_entry = diff_entry_arr[0]
 
         match = re.match(
             # Examples:
@@ -136,7 +183,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
         else:
             url_last_line_number = int(match.group("url_last_line_number"))
 
-        diff_str = diff_entry_arr[0]["diff"]
+        diff_str = diff_entry.diff.decode("utf-8")
         diff_split = re.split(r"^(@@.+@@).*$\n", diff_str, flags=re.MULTILINE)
         new_url_fragment = None
         new_first_line_number = url_first_line_number
@@ -280,13 +327,21 @@ class UrlResolver(plugin_registry.IUrlResolver):
         ) and was_lines_content == new_lines_content:  # No changes detected
             return False
 
+        if diff_entry.b_path is not None:
+            url_parsed = url_parsed._replace(
+                path=url_parsed.path.replace(
+                    f"/{diff_entry.a_path}", f"/{diff_entry.b_path}"
+                )
+            )
+
         url_parsed = url_parsed._replace(fragment=new_url_fragment)._replace(
             path=re.sub(
                 r"@[a-fA-F0-9]+$",
-                "@" + compare_result["commit"]["short_id"],
+                "@" + ref_to_hexsha_8chars,
                 url_parsed.path,
             )
         )
+
         if was_lines_content == new_lines_content:
             return plugin_registry.contract.IDiffLinesMoved(
                 updated_url=url_parsed.geturl(), current_lines_content=new_lines_content
