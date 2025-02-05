@@ -1,6 +1,7 @@
 import plugin_registry
 import gitlab
 import git
+import gitdb
 import logging
 from test_plugin_registry import plugins
 import os
@@ -165,6 +166,7 @@ class TestGitLabPluginCloneFetch:
             assert diff1 == None
             assert diff2 == None
 
+
 @mock.patch("gitlab.Gitlab")
 @mock.patch("git.Repo.__new__")
 @mock.patch.dict(
@@ -218,7 +220,7 @@ class TestGitLabPlugin:
         git.return_value.git.fetch.assert_called_once_with("origin", "refs/heads/main")
         git.return_value.commit.assert_has_calls(
             [
-                mock.call("main"),
+                mock.call("remotes/origin/main"),
                 mock.call("a1b2c3d4"),
             ]
         )
@@ -2172,6 +2174,47 @@ class TestGitLabPlugin:
             == "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@9f8e7d6c#L7<-lines deleted"
         )
 
+    def test_diff_caching2(
+        self,
+        git,
+        gl,
+        plugins,
+        url_resolver,
+        diff_result,
+    ):
+        url_resolver = plugin_registry.getUrlResolver(plugins=plugins, scheme="gitlab")
+        url_resolver._gls = (
+            {}
+        )  # Clear the resolver's cache of GitLab objects. Otherwise subsequent tests will use the first test's GitLab mock object.
+        url_resolver._repository_compare_cache = (
+            {}
+        )  # Clear the resolver's cache of repository_compare return objects.
+
+        git.return_value.commit.return_value.diff.return_value = diff_result
+        git.return_value.commit.return_value.hexsha = "9f8e7d6c000000000"
+
+        diff1 = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@a1b2c3d4#L6"
+        )
+        # url_resolver is expected to use the cached data during the second diff call
+        diff2 = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file2.txt@a1b2c3d4#L7"
+        )
+
+        gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
+        gl.return_value.projects.get.assert_called_once_with("user/project")
+        git.return_value.git.fetch.assert_called_once_with("origin", "refs/heads/main")
+
+        assert type(diff1) == plugin_registry.contract.IDiffContentChanged
+        assert (
+            diff1.updated_url
+            == "gitlab://mygitlab.io/user/project/-/blob/main/some/path/file1.txt@9f8e7d6c#L8"
+        )
+        assert diff1.was_lines_content == "line6"
+        assert diff1.current_lines_content == "line6 changed"
+
+        assert diff2 == False
+
     def test_diff_two_consecutive_lines2(self, git, gl, url_resolver):
         d = mock.MagicMock()
         d.a_path = "some/path/file1.txt"
@@ -2336,9 +2379,7 @@ class TestGitLabPlugin:
 
         gl.return_value.enable_debug.assert_called()
 
-    def test_diff_environment_last_deployment1(
-        self, git, gl, url_resolver, diff_result
-    ):
+    def test_diff_environment_last_deployment(self, git, gl, url_resolver, diff_result):
         env0 = mock.MagicMock(id="123")
         env0.name = "some_name_1"
         env1 = mock.MagicMock(id="456")
@@ -2352,7 +2393,7 @@ class TestGitLabPlugin:
         ]
 
         d = {}
-        d["sha"] = "0123456789abcdef0123456789abcdef01234567"
+        d["ref"] = "main"
         gl.return_value.projects.get.return_value.environments.get.return_value = (
             mock.MagicMock(last_deployment=d)
         )
@@ -2371,6 +2412,54 @@ class TestGitLabPlugin:
         )
         git.return_value.commit.return_value.diff.assert_called_once_with(
             git.return_value.commit.return_value,
+            create_patch=True,
+            minimal=True,
+            find_renames="40%",
+        )
+
+    def test_diff_environment_last_deployment_exception(
+        self, git, gl, url_resolver, diff_result
+    ):
+        mock_commit = mock.Mock()
+        mock_commit.diff.return_value = diff_result
+        mock_commit.hexsha = "9f8e7d6c000000000"
+
+        def commit_side_effect(rev):
+            if rev == "remotes/origin/main":
+                raise gitdb.exc.BadName
+            return mock_commit
+
+        env0 = mock.MagicMock(id="123")
+        env0.name = "some_name_1"
+        env1 = mock.MagicMock(id="456")
+        env1.name = "production"
+        env2 = mock.MagicMock(id="789")
+        env2.name = "some_name_2"
+        gl.return_value.projects.get.return_value.environments.list.return_value = [
+            env0,
+            env1,
+            env2,
+        ]
+
+        d = {}
+        d["ref"] = "main"
+        gl.return_value.projects.get.return_value.environments.get.return_value = (
+            mock.MagicMock(last_deployment=d)
+        )
+
+        git.return_value.commit.side_effect = commit_side_effect
+
+        diff = url_resolver.diff(
+            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt@a1b2c3d4#L2-3"
+        )
+        gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
+        gl.return_value.projects.get.assert_called_once_with("user/project")
+        gl.return_value.projects.get.return_value.environments.list.assert_called_once()
+        gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
+            "456"
+        )
+        mock_commit.diff.assert_called_once_with(
+            mock_commit,
             create_patch=True,
             minimal=True,
             find_renames="40%",

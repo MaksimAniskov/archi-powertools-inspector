@@ -3,6 +3,7 @@ import plugin_registry
 import os
 import gitlab
 import git
+import gitdb
 import urllib.parse
 import re
 
@@ -78,7 +79,10 @@ class UrlResolver(plugin_registry.IUrlResolver):
         )
 
     def _calcDiff(
-        self, url_parsed: urllib.parse.ParseResult, ref_from: str, ref_to: str
+        self,
+        url_parsed: urllib.parse.ParseResult,
+        ref_from: str,
+        ref_to: str,
     ) -> tuple[git.diff.DiffIndex, str]:
 
         cached_repo_path, hostname, project_path_with_leading_slash = (
@@ -90,21 +94,30 @@ class UrlResolver(plugin_registry.IUrlResolver):
             repo = git.Repo(cached_repo_path)
             if not self._git_fetched_for.get(repo_and_ref_to_key):
                 try:
-                    self._logger.info(f"Doing git fetch origin refs/heads/{ref_to} in {hostname}{project_path_with_leading_slash}")
+                    self._logger.info(
+                        f"Doing git fetch origin refs/heads/{ref_to} in {hostname}{project_path_with_leading_slash}"
+                    )
                     repo.git.fetch("origin", f"refs/heads/{ref_to}")
                 except git.exc.GitCommandError:
-                    self._logger.info(f"git fetch failed. Doing git fetch origin refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}")
+                    self._logger.info(
+                        f"git fetch failed. Doing git fetch origin refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}"
+                    )
                     repo.git.fetch("origin", f"refs/tags/{ref_to}")
         except git.exc.NoSuchPathError:
-            self._logger.info(f"Doing git clone https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git --branch {ref_to}")
+            self._logger.info(
+                f"Doing git clone https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git --branch {ref_to}"
+            )
             repo = git.Repo.clone_from(
                 url=f"https://oauth2:{os.getenv('GITLAB_TOKEN')}@{hostname}{project_path_with_leading_slash}.git",
                 to_path=cached_repo_path,
-                branch=ref_to
+                branch=ref_to,
             )
         self._git_fetched_for[repo_and_ref_to_key] = True
 
-        commit_to = repo.commit(ref_to)
+        try:
+            commit_to = repo.commit(f"remotes/origin/{ref_to}")
+        except gitdb.exc.BadName:
+            commit_to = repo.commit(f"refs/tags/{ref_to}")
         ref_to_hexsha_8chars = commit_to.hexsha[:8]
         diff = repo.commit(ref_from).diff(
             commit_to, create_patch=True, minimal=True, find_renames="40%"
@@ -147,15 +160,20 @@ class UrlResolver(plugin_registry.IUrlResolver):
                         project_id=project_id,
                         environment_name=environment_name,
                     )
-                    ref_to = environment.last_deployment["sha"]
+                    ref_to = environment.last_deployment["ref"]
 
                 diff, ref_to_hexsha_8chars = self._calcDiff(
                     url_parsed, ref_from, ref_to
                 )
-                self._repository_compare_cache[url_parsed.path] = (diff, ref_to_hexsha_8chars)
+                self._repository_compare_cache[url_parsed.path] = (
+                    diff,
+                    ref_to_hexsha_8chars,
+                )
             elif self._repository_compare_cache[url_parsed.path] is None:
                 return None
-            compare_result, ref_to_hexsha_8chars = self._repository_compare_cache[url_parsed.path]
+            compare_result, ref_to_hexsha_8chars = self._repository_compare_cache[
+                url_parsed.path
+            ]
         except Exception as e:
             self._logger.warning(f"{type(e)}: {e}")
             self._repository_compare_cache[url_parsed.path] = None
