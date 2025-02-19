@@ -9,6 +9,7 @@ MY_SCHEME_NAME = "k8s+jmespath"
 
 # Example:
 # k8s+jmespath://https://ABC123.xyz.eu-west-1.eks.amazonaws.com/ns=some-namespace/networking.k8s.io/v1/Ingress/some-name#rules[0].host
+# k8s+jmespath://https://ABC123.xyz.eu-west-1.eks.amazonaws.com/ns=some-namespace//v1/ConfigMap/some-name#data.somekey
 
 
 class K8s(plugin_registry.contract.IPlugin):
@@ -54,7 +55,7 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
         # '/ns=some-namespace/networking.k8s.io/v1/Ingress/some-name'
         match = re.match(
-            r"/ns=(?P<namespace>[^/]+)/(?P<api_group>[^/]+)/(?P<api_version>[^/]+)/(?P<resource_kind>[^/]+)/(?P<resource_name>.+)",
+            r"/ns=(?P<namespace>[^/]+)/(?P<api_group>[^/]*)/(?P<api_version>[^/]+)/(?P<resource_kind>[^/]+)/(?P<resource_name>.+)",
             url_parsed.path,
         )
         namespace = match.group("namespace")

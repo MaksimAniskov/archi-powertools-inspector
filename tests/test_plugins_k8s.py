@@ -89,6 +89,13 @@ def kubernetes_resource_get_result_ingress():
         ],
     }
 
+@pytest.fixture
+def kubernetes_resource_get_result_configmap():
+    return {
+        "data": {
+            "somekey": "somevalue",
+        }
+    }
 
 @mock.patch("kubernetes.dynamic.DynamicClient")
 @mock.patch("builtins.open", new=my_open)
@@ -105,6 +112,19 @@ class TestK8sPlugin:
         )
         assert type(content_obj) == plugin_registry.contract.IContent
         assert content_obj.content == b"service1.acme.com"
+
+    def test_resolveToContentCoreApiGroup(
+        self, k8s_client, url_resolver, kubernetes_resource_get_result_configmap
+    ):
+        k8s_client.return_value.resources.get.return_value.get.return_value = (
+            kubernetes_resource_get_result_configmap
+        )
+
+        content_obj = url_resolver.resolveToContent(
+            "k8s+jmespath://https://abc123.xyz.eu-west-1.eks.amazonaws.com/ns=some-namespace//v1/ConfigMap/some-name#data.somekey"
+        )
+        assert type(content_obj) == plugin_registry.contract.IContent
+        assert content_obj.content == b"somevalue"
 
     def test_resolveToContent_advanced_jmethpath_expression(
         self, k8s_client, url_resolver, kubernetes_resource_get_result_ingress
