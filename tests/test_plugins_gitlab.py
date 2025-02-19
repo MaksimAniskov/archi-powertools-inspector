@@ -120,7 +120,7 @@ class TestGitLabPluginCloneFetch:
             git_repo.return_value.git.fetch.assert_has_calls(
                 [
                     mock.call("origin", "refs/heads/tagA"),
-                    mock.call("origin", "refs/tags/tagA"),
+                    mock.call("origin", "+refs/tags/tagA:refs/tags/tagA"),
                 ]
             )
 
@@ -160,7 +160,7 @@ class TestGitLabPluginCloneFetch:
             git_repo.return_value.git.fetch.assert_has_calls(
                 [
                     mock.call("origin", "refs/heads/main"),
-                    mock.call("origin", "refs/tags/main"),
+                    mock.call("origin", "+refs/tags/main:refs/tags/main"),
                 ]
             )
             assert diff1 == None

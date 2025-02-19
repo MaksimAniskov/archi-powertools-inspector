@@ -100,9 +100,9 @@ class UrlResolver(plugin_registry.IUrlResolver):
                     repo.git.fetch("origin", f"refs/heads/{ref_to}")
                 except git.exc.GitCommandError:
                     self._logger.info(
-                        f"git fetch failed. Doing git fetch origin refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}"
+                        f"git fetch failed. Doing git fetch origin +refs/tags/{ref_to}:refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}"
                     )
-                    repo.git.fetch("origin", f"refs/tags/{ref_to}")
+                    repo.git.fetch("origin", f"+refs/tags/{ref_to}:refs/tags/{ref_to}")
         except git.exc.NoSuchPathError:
             self._logger.info(
                 f"Doing git clone https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git --branch {ref_to}"
