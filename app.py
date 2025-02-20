@@ -7,6 +7,7 @@ import git
 import urllib.parse
 import pathlib
 import os
+import time
 
 
 def __description() -> str:
@@ -83,7 +84,19 @@ def main():
     changes_detected = False
     files = pathlib.Path(git_clone_dir).glob("model/**/*.xml")
     for file in files:
-        changes_detected |= lib.processFile(logger, plugins, file)
+        backoff_timeout = 60  # seconds
+        while True:
+            try:
+                changes_detected |= lib.processFile(logger, plugins, file)
+                break
+            except Exception as e:
+                if backoff_timeout >= 3600:
+                    raise
+                logger.error(f"Error processing {file}: {e}")
+                logger.error(f"Sleep {backoff_timeout} seconds before retrying...")
+                time.sleep(backoff_timeout)
+                logger.error("Continue processing...")
+                backoff_timeout *= 2
 
     if changes_detected and not __cli_args.nocommit:
         logger.info("Preparing git commit...")

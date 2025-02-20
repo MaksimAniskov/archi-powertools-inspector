@@ -1486,3 +1486,31 @@ class TestMain(unittest.TestCase):
             author=git.Actor("Archi Power Tools Inspector", "some@email.com"),
         )
         git_repo.clone_from.return_value.remotes.origin.push.assert_called_with()
+
+@mock.patch(
+    "sys.argv",
+    ["program_name", "fake-coarchi-repo-url", "/fake/path/to/local/clone/dir"],
+)
+@mock.patch("git.Repo")
+@mock.patch("os.path.exists")
+class TestMain2(unittest.TestCase):
+
+    @mock.patch("lib.processFile")
+    @mock.patch("pathlib.Path.glob")
+    @mock.patch("time.sleep")
+    def test_main_exception_in_process_file(
+        self, sleep, glob, processFile, os_path_exists, git_repo
+    ):
+        os_path_exists.return_value = False
+        glob.return_value = ["fakefile.txt"]
+        processFile.side_effect = Exception()
+
+        with self.assertRaises(Exception) as context:
+            app.main() # Expected to throw exception
+
+        sleep.assert_any_call(60)
+        sleep.assert_any_call(120)
+        sleep.assert_any_call(240)
+        sleep.assert_any_call(480)
+        sleep.assert_any_call(960)
+        sleep.assert_any_call(1920)
