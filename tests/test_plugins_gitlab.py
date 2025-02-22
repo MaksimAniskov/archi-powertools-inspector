@@ -98,7 +98,8 @@ class TestGitLabPluginCloneFetch:
                 "gitlab://mygitlab.io/user/project/-/blob/main/src1.txt@a1b2c3d4#L1"
             )
             git_repo.return_value.git.fetch.assert_called_once_with(
-                "origin", "refs/heads/main"
+                "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+                "refs/heads/main",
             )
 
     def test_git_fetch_tag(
@@ -119,8 +120,14 @@ class TestGitLabPluginCloneFetch:
             )
             git_repo.return_value.git.fetch.assert_has_calls(
                 [
-                    mock.call("origin", "refs/heads/tagA"),
-                    mock.call("origin", "+refs/tags/tagA:refs/tags/tagA"),
+                    mock.call(
+                        "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+                        "refs/heads/tagA",
+                    ),
+                    mock.call(
+                        "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+                        "+refs/tags/tagA:refs/tags/tagA",
+                    ),
                 ]
             )
 
@@ -159,8 +166,14 @@ class TestGitLabPluginCloneFetch:
             assert 2 == git_repo.return_value.git.fetch.call_count
             git_repo.return_value.git.fetch.assert_has_calls(
                 [
-                    mock.call("origin", "refs/heads/main"),
-                    mock.call("origin", "+refs/tags/main:refs/tags/main"),
+                    mock.call(
+                        "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+                        "refs/heads/main",
+                    ),
+                    mock.call(
+                        "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+                        "+refs/tags/main:refs/tags/main",
+                    ),
                 ]
             )
             assert diff1 == None
@@ -217,7 +230,10 @@ class TestGitLabPlugin:
         gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
         # TODO: Optimize implementation to avoid this call
         gl.return_value.projects.get.assert_called_once_with("user/project")
-        git.return_value.git.fetch.assert_called_once_with("origin", "refs/heads/main")
+        git.return_value.git.fetch.assert_called_once_with(
+            "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+            "refs/heads/main",
+        )
         git.return_value.commit.assert_has_calls(
             [
                 mock.call("remotes/origin/main"),
@@ -2160,7 +2176,10 @@ class TestGitLabPlugin:
         )
         gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
         gl.return_value.projects.get.assert_called_once_with("user/project")
-        git.return_value.git.fetch.assert_called_once_with("origin", "refs/heads/main")
+        git.return_value.git.fetch.assert_called_once_with(
+            "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+            "refs/heads/main",
+        )
         assert type(diff1) == plugin_registry.contract.IDiffContentChanged
         assert (
             diff1.updated_url
@@ -2203,7 +2222,10 @@ class TestGitLabPlugin:
 
         gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
         gl.return_value.projects.get.assert_called_once_with("user/project")
-        git.return_value.git.fetch.assert_called_once_with("origin", "refs/heads/main")
+        git.return_value.git.fetch.assert_called_once_with(
+            "https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+            "refs/heads/main",
+        )
 
         assert type(diff1) == plugin_registry.contract.IDiffContentChanged
         assert (

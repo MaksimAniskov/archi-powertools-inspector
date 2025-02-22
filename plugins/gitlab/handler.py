@@ -90,25 +90,27 @@ class UrlResolver(plugin_registry.IUrlResolver):
         )
 
         repo_and_ref_to_key = f"{hostname}{project_path_with_leading_slash}:{ref_to}"
+        repo_url = f"https://oauth2:{os.getenv('GITLAB_TOKEN')}@{hostname}{project_path_with_leading_slash}.git"
+        repo_url_redacted = f"https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git"
         try:
             repo = git.Repo(cached_repo_path)
             if not self._git_fetched_for.get(repo_and_ref_to_key):
                 try:
                     self._logger.info(
-                        f"Doing git fetch origin refs/heads/{ref_to} in {hostname}{project_path_with_leading_slash}"
+                        f"Doing git fetch {repo_url_redacted} refs/heads/{ref_to} in {hostname}{project_path_with_leading_slash}"
                     )
-                    repo.git.fetch("origin", f"refs/heads/{ref_to}")
+                    repo.git.fetch(repo_url, f"refs/heads/{ref_to}")
                 except git.exc.GitCommandError:
                     self._logger.info(
-                        f"git fetch failed. Doing git fetch origin +refs/tags/{ref_to}:refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}"
+                        f"git fetch failed. Doing git fetch {repo_url_redacted} +refs/tags/{ref_to}:refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}"
                     )
-                    repo.git.fetch("origin", f"+refs/tags/{ref_to}:refs/tags/{ref_to}")
+                    repo.git.fetch(repo_url, f"+refs/tags/{ref_to}:refs/tags/{ref_to}")
         except git.exc.NoSuchPathError:
             self._logger.info(
-                f"Doing git clone https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git --branch {ref_to}"
+                f"Doing git clone {repo_url_redacted} --branch {ref_to}"
             )
             repo = git.Repo.clone_from(
-                url=f"https://oauth2:{os.getenv('GITLAB_TOKEN')}@{hostname}{project_path_with_leading_slash}.git",
+                url=repo_url,
                 to_path=cached_repo_path,
                 branch=ref_to,
             )
