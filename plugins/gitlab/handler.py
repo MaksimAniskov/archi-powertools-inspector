@@ -91,10 +91,16 @@ class UrlResolver(plugin_registry.IUrlResolver):
 
         repo_and_ref_to_key = f"{hostname}{project_path_with_leading_slash}:{ref_to}"
         repo_url = f"https://oauth2:{os.getenv('GITLAB_TOKEN')}@{hostname}{project_path_with_leading_slash}.git"
-        repo_url_redacted = f"https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git"
-        try:
+        repo_url_redacted = (
+            f"https://oauth2:REDACTED@{hostname}{project_path_with_leading_slash}.git"
+        )
+
+        if self._git_fetched_for.get(repo_and_ref_to_key):
             repo = git.Repo(cached_repo_path)
-            if not self._git_fetched_for.get(repo_and_ref_to_key):
+            latest_commit = self._git_fetched_for[repo_and_ref_to_key]
+        else:
+            try:
+                repo = git.Repo(cached_repo_path)
                 try:
                     self._logger.info(
                         f"Doing git fetch {repo_url_redacted} refs/heads/{ref_to} in {hostname}{project_path_with_leading_slash}"
@@ -105,26 +111,27 @@ class UrlResolver(plugin_registry.IUrlResolver):
                         f"git fetch failed. Doing git fetch {repo_url_redacted} +refs/tags/{ref_to}:refs/tags/{ref_to} in {hostname}{project_path_with_leading_slash}"
                     )
                     repo.git.fetch(repo_url, f"+refs/tags/{ref_to}:refs/tags/{ref_to}")
-        except git.exc.NoSuchPathError:
-            self._logger.info(
-                f"Doing git clone {repo_url_redacted} --branch {ref_to}"
-            )
-            repo = git.Repo.clone_from(
-                url=repo_url,
-                to_path=cached_repo_path,
-                branch=ref_to,
-            )
-        self._git_fetched_for[repo_and_ref_to_key] = True
+                latest_commit = repo.commit("FETCH_HEAD")
+            except git.exc.NoSuchPathError:
+                self._logger.info(
+                    f"Doing git clone {repo_url_redacted} --branch {ref_to}"
+                )
+                repo = git.Repo.clone_from(
+                    url=repo_url,
+                    to_path=cached_repo_path,
+                    branch=ref_to,
+                )
+                try:
+                    latest_commit = repo.commit(f"remotes/origin/{ref_to}")
+                except gitdb.exc.BadName:
+                    latest_commit = repo.commit(f"refs/tags/{ref_to}")
 
-        try:
-            commit_to = repo.commit(f"remotes/origin/{ref_to}")
-        except gitdb.exc.BadName:
-            commit_to = repo.commit(f"refs/tags/{ref_to}")
-        ref_to_hexsha_8chars = commit_to.hexsha[:8]
+            self._git_fetched_for[repo_and_ref_to_key] = latest_commit
+
         diff = repo.commit(ref_from).diff(
-            commit_to, create_patch=True, minimal=True, find_renames="40%"
+            latest_commit, create_patch=True, minimal=True, find_renames="40%"
         )
-        return diff, ref_to_hexsha_8chars
+        return diff, latest_commit.hexsha[:8]
 
     def diff(self, url: str) -> plugin_registry.contract.IDiff | bool | None:
         gl = self._getGL(url)

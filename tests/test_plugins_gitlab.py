@@ -86,6 +86,45 @@ class TestGitLabPluginCloneFetch:
                 to_path="./gitlab_repo_cache/mygitlab.io/user/project",
                 branch="main",
             )
+            git_repo_clone_from.return_value.commit.assert_has_calls([
+                mock.call("remotes/origin/main"),
+                mock.call("a1b2c3d4"),
+            ])
+
+    def test_git_clone_tag(
+        self,
+        gl,
+        url_resolver,
+    ):
+        def commit_side_effect(rev):
+            if rev == "remotes/origin/tagA":
+                raise gitdb.exc.BadName
+            return mock.Mock()
+
+        with mock.patch("git.Repo.__init__") as git_repo_init, mock.patch(
+            "git.Repo.clone_from"
+        ) as git_repo_clone_from:
+            git_repo_init.side_effect = git.exc.NoSuchPathError()
+            git_repo_clone_from.return_value.commit.side_effect = commit_side_effect
+
+            url_resolver.diff(
+                "gitlab://mygitlab.io/user/project/-/blob/tagA/src1.txt@a1b2c3d4#L1"
+            )
+            git_repo_clone_from.assert_called_once_with(
+                url="https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+                to_path="./gitlab_repo_cache/mygitlab.io/user/project",
+                branch="tagA",
+            )
+            git_repo_clone_from.assert_called_once_with(
+                url="https://oauth2:gitlabfaketoken@mygitlab.io/user/project.git",
+                to_path="./gitlab_repo_cache/mygitlab.io/user/project",
+                branch="tagA",
+            )
+            git_repo_clone_from.return_value.commit.assert_has_calls([
+                mock.call("remotes/origin/tagA"),
+                mock.call("refs/tags/tagA"),
+                mock.call("a1b2c3d4"),
+            ])
 
     def test_git_fetch(
         self,
@@ -236,7 +275,7 @@ class TestGitLabPlugin:
         )
         git.return_value.commit.assert_has_calls(
             [
-                mock.call("remotes/origin/main"),
+                mock.call("FETCH_HEAD"),
                 mock.call("a1b2c3d4"),
             ]
         )
@@ -2434,54 +2473,6 @@ class TestGitLabPlugin:
         )
         git.return_value.commit.return_value.diff.assert_called_once_with(
             git.return_value.commit.return_value,
-            create_patch=True,
-            minimal=True,
-            find_renames="40%",
-        )
-
-    def test_diff_environment_last_deployment_exception(
-        self, git, gl, url_resolver, diff_result
-    ):
-        mock_commit = mock.Mock()
-        mock_commit.diff.return_value = diff_result
-        mock_commit.hexsha = "9f8e7d6c000000000"
-
-        def commit_side_effect(rev):
-            if rev == "remotes/origin/main":
-                raise gitdb.exc.BadName
-            return mock_commit
-
-        env0 = mock.MagicMock(id="123")
-        env0.name = "some_name_1"
-        env1 = mock.MagicMock(id="456")
-        env1.name = "production"
-        env2 = mock.MagicMock(id="789")
-        env2.name = "some_name_2"
-        gl.return_value.projects.get.return_value.environments.list.return_value = [
-            env0,
-            env1,
-            env2,
-        ]
-
-        d = {}
-        d["ref"] = "main"
-        gl.return_value.projects.get.return_value.environments.get.return_value = (
-            mock.MagicMock(last_deployment=d)
-        )
-
-        git.return_value.commit.side_effect = commit_side_effect
-
-        diff = url_resolver.diff(
-            "gitlab://mygitlab.io/user/project/-/blob/${environment('production').last_deployment.sha}/some/path/file1.txt@a1b2c3d4#L2-3"
-        )
-        gl.assert_called_once_with("https://mygitlab.io", "gitlabfaketoken")
-        gl.return_value.projects.get.assert_called_once_with("user/project")
-        gl.return_value.projects.get.return_value.environments.list.assert_called_once()
-        gl.return_value.projects.get.return_value.environments.get.assert_called_once_with(
-            "456"
-        )
-        mock_commit.diff.assert_called_once_with(
-            mock_commit,
             create_patch=True,
             minimal=True,
             find_renames="40%",
