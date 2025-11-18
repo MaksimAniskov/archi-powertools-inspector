@@ -49,9 +49,12 @@ class UrlResolver(plugin_registry.IUrlResolver):
         # E.g. SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd'
 
         if is_jmespath_mode:
-            match=re.match(r"(?P<value_to_return>.+)/(?P<jmethpath_expression>.+)", url_parsed.fragment)
-            value_to_return = match.group("value_to_return") # E.g. SecretString
-            jmethpath_expression= match.group("jmethpath_expression") # E.g. key1
+            match = re.match(
+                r"(?P<value_to_return>.+)/(?P<jmethpath_expression>.+)", url_parsed.fragment)
+            value_to_return = match.group(
+                "value_to_return")  # E.g. SecretString
+            jmethpath_expression = match.group(
+                "jmethpath_expression")  # E.g. key1
         else:
             value_to_return = url_parsed.fragment  # E.g. SecretString
 
