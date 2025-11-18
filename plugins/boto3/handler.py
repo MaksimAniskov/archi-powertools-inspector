@@ -12,6 +12,7 @@ MY_SCHEMES = ["boto3", "boto3+json+jmespath"]
 # Examples:
 # boto3://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd#SecretString
 # boto3+json+jmespath://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd#SecretString/key1
+# boto3://elbv2/describe_tags?ResourceArns=[arn:aws:elasticloadbalancing:eu-west-1:012345678901:loadbalancer/net/a1b2c3d4e5f6]#TagDescriptions
 
 
 class Boto3(plugin_registry.contract.IPlugin):
@@ -76,7 +77,12 @@ class UrlResolver(plugin_registry.IUrlResolver):
                         r"(?P<name>[^=]+)=(?P<value>.+)",
                         equation,
                     )
-                    params[match.group("name")] = match.group("value")
+                    param_name = match.group("name")
+                    param_value = match.group("value")
+                    if not re.match(r"^\[.+\]$", param_value):
+                        params[param_name] = param_value
+                    else:
+                        params[param_name] = param_value[1:-1].split(",")
 
                 response = method(**params)
                 self._boto_results_cache[cache_key] = response
