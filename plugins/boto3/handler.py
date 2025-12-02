@@ -1,6 +1,7 @@
 import logging
 import plugin_registry
 import boto3
+from botocore.config import Config
 import json
 import jmespath
 import urllib.parse
@@ -11,6 +12,7 @@ MY_SCHEMES = ["boto3", "boto3+json+jmespath"]
 
 # Examples:
 # boto3://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd#SecretString
+# boto3://secretsmanager@us-east-1/get_secret_value ...
 # boto3+json+jmespath://secretsmanager/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd#SecretString/key1
 # boto3://elbv2/describe_tags?ResourceArns=[arn:aws:elasticloadbalancing:eu-west-1:012345678901:loadbalancer/net/a1b2c3d4e5f6]#TagDescriptions
 
@@ -43,7 +45,10 @@ class UrlResolver(plugin_registry.IUrlResolver):
         url_parsed = urllib.parse.urlparse(url)
 
         is_jmespath_mode = url_parsed.scheme == "boto3+json+jmespath"
-        aws_service_name = url_parsed.netloc  # E.g. secretsmanager
+        match = re.match(
+            r"(?P<service_name>[^@]+)(@(?P<region>.+))?", url_parsed.netloc)
+        aws_service_name = match.group("service_name")  # E.g. secretsmanager
+        aws_region = match.group("region")  # E.g. us-east-1
         method_name = url_parsed.path[1:]  # E.g. /get_secret_value
         method_params = url_parsed.query
         # E.g. SecretId=arn:aws:secretsmanager:eu-west-1:012345678901:secret:mysecretname-aBcDeF&VersionId=abcd'
@@ -68,10 +73,12 @@ class UrlResolver(plugin_registry.IUrlResolver):
                     f"Boto3 service/method is not whitelisted: {aws_service_name}.{method_name}"
                 )
 
-            cache_key = f"{aws_service_name}/{method_name}?{method_params}"
+            cache_key = f"{aws_service_name}@{aws_region}/{method_name}?{method_params}"
 
             if cache_key not in self._boto_results_cache:
-                client = boto3.client(aws_service_name)
+                config = Config(
+                    region_name=aws_region) if aws_region else None
+                client = boto3.client(aws_service_name, config=config)
                 method = getattr(client, method_name)
 
                 params = {}

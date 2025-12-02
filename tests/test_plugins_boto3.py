@@ -54,6 +54,17 @@ class TestBoto3Plugin:
         assert type(content_obj) == plugin_registry.contract.IContent
         assert content_obj.content == b"""{'SecretString': '{"key1":"value1"}'}"""
 
+    def test_resolveToContentWithRegion(self, boto3client, url_resolver):
+        boto3client.return_value.get_secret_value.return_value = {
+            "SecretString": '{"key1":"value1"}'
+        }
+        content_obj = url_resolver.resolveToContent(
+            "boto3://secretsmanager@us-east-1/get_secret_value?SecretId=arn:aws:secretsmanager:eu-west-1:425828444339:secret:my/secret-W0Wo0L"
+        )
+        assert type(content_obj) == plugin_registry.contract.IContent
+        assert content_obj.content == b"""{'SecretString': '{"key1":"value1"}'}"""
+        assert boto3client.call_args.kwargs["config"].region_name == "us-east-1"
+
     def test_resolveToContentNotWhitelistedMethod(self, boto3client, url_resolver):
         content_obj = url_resolver.resolveToContent(
             "boto3://secretsmanager/some_method"
