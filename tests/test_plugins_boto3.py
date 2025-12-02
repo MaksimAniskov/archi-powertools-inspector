@@ -11,6 +11,8 @@ def plugins():
     boto3_plugin_whitelisted_services_and_methods = """
 secretsmanager:
   - get_secret_value
+elbv2:
+  - describe_tags
 """
     with mock.patch(
         "builtins.open",
@@ -89,3 +91,28 @@ class TestBoto3Plugin:
         )
         assert type(content_obj) == plugin_registry.contract.IContent
         assert content_obj.content == b'value1'
+
+    def test_array_param_resolveToContent(self, boto3client, url_resolver):
+        boto3client.return_value.describe_tags.return_value = {
+            "TagDescriptions": [
+                {
+                    'ResourceArn': 'arn:aws:elasticloadbalancing:eu-west-1:012345678901:loadbalancer/net/a1b2c3d4e5f6',
+                    'Tags': [
+                        {
+                            'Key': 'some_tag',
+                            'Value': 'some_tag_value'
+                        },
+                    ]
+                },
+            ]
+        }
+        content_obj = url_resolver.resolveToContent(
+            "boto3://elbv2/describe_tags?ResourceArns=[arn:aws:elasticloadbalancing:eu-west-1:012345678901:loadbalancer/net/a1b2c3d4e5f6]#TagDescriptions"
+        )
+
+        boto3client.return_value.describe_tags.assert_called_once_with(
+            ResourceArns=[
+                'arn:aws:elasticloadbalancing:eu-west-1:012345678901:loadbalancer/net/a1b2c3d4e5f6']
+        )
+        assert type(content_obj) == plugin_registry.contract.IContent
+        assert content_obj.content == b"[{'ResourceArn': 'arn:aws:elasticloadbalancing:eu-west-1:012345678901:loadbalancer/net/a1b2c3d4e5f6', 'Tags': [{'Key': 'some_tag', 'Value': 'some_tag_value'}]}]"
